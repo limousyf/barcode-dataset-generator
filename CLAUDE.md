@@ -69,24 +69,27 @@ python -m src.dataset_generator --api-url https://barcodes.dev --api-key $BARCOD
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v2/test/generate-and-degrade` | POST | API Key | Generate barcode + apply degradation with metadata |
-| `/api/v2/degrade/presets` | GET | API Key | List available degradation presets |
-| `/api/v1/barcode/generate` | POST | None | Generate barcode without degradation (legacy) |
+| `POST /api/v2/barcode/generate` | POST | API Key | Generate barcode + optional degradation with metadata |
+| `GET /api/v2/barcode/symbologies` | GET | None | List supported symbologies by category |
+| `GET /api/v2/barcode/families` | GET | None | List symbology family groupings |
+| `GET /api/v2/degrade/presets` | GET | None | List available degradation presets |
 
 ### Authentication Header
 
-All v2 endpoints require the `X-API-Key` header:
+Authenticated endpoints require the `X-API-Key` header:
 ```
 X-API-Key: your-api-key-here
 ```
 
 ### Request/Response Format
 
-**Generate and Degrade Request:**
+**Generate Barcode Request (POST /api/v2/barcode/generate):**
 ```json
 {
-  "barcode_type": "code128",
+  "type": "code128",
   "text": "SAMPLE123",
+  "format": "PNG",
+  "include_metadata": true,
   "degradation": {
     "geometry": {
       "rotation": {"angle": 15},
@@ -99,11 +102,14 @@ X-API-Key: your-api-key-here
 }
 ```
 
-**Response with Metadata:**
+**Response:**
 ```json
 {
   "success": true,
   "image": "base64-encoded-png",
+  "format": "PNG",
+  "degradation_applied": true,
+  "transformations": ["rotation", "noise"],
   "metadata": {
     "original_size": {"width": 400, "height": 150},
     "regions": {
@@ -116,6 +122,34 @@ X-API-Key: your-api-key-here
       }
     }
   }
+}
+```
+
+**Get Symbologies Response (GET /api/v2/barcode/symbologies):**
+```json
+{
+  "categories": {
+    "linear": ["code128", "code39", "ean13", ...],
+    "2d": ["qr", "datamatrix", "aztec", ...],
+    "stacked": ["pdf417", "micropdf417", ...],
+    "postal": ["usps_imd", "royal_mail", ...],
+    "composite": ["gs1_128_cc", ...],
+    "popular": ["code128", "qr", "ean13", ...]
+  },
+  "total_symbologies": 80
+}
+```
+
+**Get Families Response (GET /api/v2/barcode/families):**
+```json
+{
+  "families": {
+    "code128": ["code128", "gs1_128", "ean14", ...],
+    "ean_upc": ["ean13", "ean8", "upca", "upce", ...],
+    "qr": ["qr", "microqr", "rmqr", ...],
+    ...
+  },
+  "total_families": 20
 }
 ```
 
