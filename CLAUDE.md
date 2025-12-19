@@ -23,15 +23,62 @@ This client provides:
 - Train/val/test splitting
 - Label file generation (detection, segmentation, classification)
 
+## API Environments
+
+The client can connect to two environments:
+
+| Environment | URL | API Key Required |
+|-------------|-----|------------------|
+| **Local** | `http://localhost:5001` | No |
+| **Production** | `https://barcodes.dev` | Yes |
+
+### Setting the Environment
+
+**Option 1: Environment Variables (Recommended)**
+```bash
+# Local development (no API key needed)
+export BARCODE_API_URL=http://localhost:5001
+
+# Production (API key required)
+export BARCODE_API_URL=https://barcodes.dev
+export BARCODE_API_KEY=your-api-key-here
+```
+
+**Option 2: Config File (`config.yaml`)**
+```yaml
+api:
+  base_url: https://barcodes.dev
+  # api_key: your-api-key-here  # Better to use env var
+```
+
+**Option 3: CLI Argument**
+```bash
+python -m src.dataset_generator --api-url https://barcodes.dev --api-key $BARCODE_API_KEY ...
+```
+
+### Getting an API Key
+
+1. Create an account at https://barcodes.dev
+2. Navigate to Account → API Keys
+3. Generate a new key with appropriate permissions
+4. Store securely (environment variable or secrets manager)
+
 ## API Endpoints Used
 
 ### Primary Endpoints (barcodes.dev API)
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/v2/test/generate-and-degrade` | POST | Generate barcode + apply degradation with metadata |
-| `/api/v2/degrade/presets` | GET | List available degradation presets |
-| `/api/v1/barcode/generate` | POST | Generate barcode without degradation |
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/v2/test/generate-and-degrade` | POST | API Key | Generate barcode + apply degradation with metadata |
+| `/api/v2/degrade/presets` | GET | API Key | List available degradation presets |
+| `/api/v1/barcode/generate` | POST | None | Generate barcode without degradation (legacy) |
+
+### Authentication Header
+
+All v2 endpoints require the `X-API-Key` header:
+```
+X-API-Key: your-api-key-here
+```
 
 ### Request/Response Format
 

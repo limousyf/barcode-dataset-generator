@@ -1,7 +1,27 @@
 # Barcode Dataset Generator Configuration
+#
+# API Configuration:
+# ------------------
+# For local development, no API key is required.
+# For production (barcodes.dev), you need an API key.
+#
+# You can set the API key via:
+#   1. Environment variable: BARCODE_API_KEY=your-key-here
+#   2. This config file (not recommended for shared configs)
+#
+# Get your API key at: https://barcodes.dev/account/api-keys
 
 api:
+  # API server URL
+  # Options:
+  #   - http://localhost:5001  (local development server)
+  #   - https://barcodes.dev   (production)
   base_url: http://localhost:5001
+
+  # API key for v2 endpoints (required for production)
+  # Prefer using BARCODE_API_KEY environment variable instead
+  # api_key: your-api-key-here
+
   timeout: 30
   retry_attempts: 3
 

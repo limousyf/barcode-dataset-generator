@@ -102,7 +102,9 @@ def main():
     parser.add_argument("--barcodes-per-image", default="1", help="Barcodes per image (e.g., '1-3')")
     parser.add_argument("--split", default="80/10/10", help="Train/val/test split")
     parser.add_argument("--format", choices=["png", "jpg"], default="png", help="Image format")
-    parser.add_argument("--api-url", default="http://localhost:5001", help="API server URL")
+    parser.add_argument("--api-url", default="http://localhost:5001",
+                        help="API server URL (or 'local'/'production')")
+    parser.add_argument("--api-key", help="API key for v2 endpoints (or set BARCODE_API_KEY)")
     parser.add_argument("--workers", type=int, default=4, help="Parallel workers")
     parser.add_argument("--config", help="Config file path")
 
@@ -112,6 +114,16 @@ def main():
     print("Dataset generator CLI - Not yet implemented")
     print(f"Would generate dataset at: {args.output}")
     print(f"Using API at: {args.api_url}")
+
+    # Check for API key if using production
+    if "barcodes.dev" in args.api_url:
+        import os
+        api_key = args.api_key or os.environ.get("BARCODE_API_KEY")
+        if not api_key:
+            print("\n⚠️  Warning: No API key provided for barcodes.dev")
+            print("   Set --api-key or BARCODE_API_KEY environment variable")
+        else:
+            print(f"Using API key: {api_key[:8]}...")
 
 
 if __name__ == "__main__":

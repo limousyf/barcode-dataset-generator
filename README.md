@@ -1,6 +1,6 @@
 # Barcode Dataset Generator
 
-A standalone tool for generating YOLO training datasets for barcode detection, segmentation, and classification. Uses the [barcodes.dev](https://github.com/your-repo/barcodes.dev) API for barcode generation and degradation.
+A standalone tool for generating YOLO training datasets for barcode detection, segmentation, and classification. Uses the [barcodes.dev](https://github.com/limousyf/barcodes.dev) API for barcode generation and degradation.
 
 ## Features
 

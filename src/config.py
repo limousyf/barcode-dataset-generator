@@ -16,8 +16,19 @@ import yaml
 class APIConfig:
     """API connection configuration."""
     base_url: str = "http://localhost:5001"
+    api_key: Optional[str] = None  # Required for v2 endpoints on barcodes.dev
     timeout: int = 30
     retry_attempts: int = 3
+
+    @property
+    def is_local(self) -> bool:
+        """Check if connecting to local development server."""
+        return "localhost" in self.base_url or "127.0.0.1" in self.base_url
+
+    @property
+    def is_production(self) -> bool:
+        """Check if connecting to production barcodes.dev."""
+        return "barcodes.dev" in self.base_url
 
 
 @dataclass
@@ -79,6 +90,8 @@ class Config:
 
         if url := os.environ.get("BARCODE_API_URL"):
             config.api.base_url = url
+        if api_key := os.environ.get("BARCODE_API_KEY"):
+            config.api.api_key = api_key
         if timeout := os.environ.get("BARCODE_API_TIMEOUT"):
             config.api.timeout = int(timeout)
 
@@ -88,6 +101,26 @@ class Config:
         """Merge environment variables into existing config."""
         if url := os.environ.get("BARCODE_API_URL"):
             self.api.base_url = url
+        if api_key := os.environ.get("BARCODE_API_KEY"):
+            self.api.api_key = api_key
         if timeout := os.environ.get("BARCODE_API_TIMEOUT"):
             self.api.timeout = int(timeout)
         return self
+
+    def validate(self) -> List[str]:
+        """
+        Validate configuration and return list of errors.
+
+        Returns:
+            List of error messages (empty if valid)
+        """
+        errors = []
+
+        # API key required for production
+        if self.api.is_production and not self.api.api_key:
+            errors.append(
+                "API key required for barcodes.dev. "
+                "Set BARCODE_API_KEY environment variable or api.api_key in config."
+            )
+
+        return errors
