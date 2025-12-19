@@ -1,0 +1,25 @@
+# Barcode Dataset Generator Configuration
+
+api:
+  base_url: http://localhost:5001
+  timeout: 30
+  retry_attempts: 3
+
+generation:
+  default_samples_per_class: 100
+  default_image_format: png
+  default_split: "80/10/10"
+  default_task: detection
+  default_label_mode: symbology
+
+degradation:
+  default_probability: 0.5
+  presets:
+    - light
+    - moderate
+    - heavy
+
+backgrounds:
+  # default_folder: ~/backgrounds
+  target_size: [640, 640]
+  default_barcodes_per_image: "1"
