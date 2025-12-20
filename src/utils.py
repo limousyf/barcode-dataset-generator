@@ -27,6 +27,10 @@ SYMBOLOGY_CATEGORIES = {
         "usps_imd", "usps_postnet", "usps_planet", "usps_onecode",
         "royalmail", "kix", "japanpost", "australiapost", "mailmark",
     ],
+    "composite": [
+        "gs1_128_cc", "ean13_cc", "ean8_cc", "upca_cc", "upce_cc",
+        "gs1_databar_cc", "gs1_databar_expanded_cc", "gs1_databar_stacked_cc",
+    ],
     "popular": [
         "code128", "code39", "upca", "upce", "ean13", "ean8",
         "qr", "datamatrix", "pdf417", "itf14", "aztec",
