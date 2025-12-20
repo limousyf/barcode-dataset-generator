@@ -76,7 +76,7 @@ class BarcodeAPIClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:5001",
+        base_url: str = "https://barcodes.dev",
         api_key: Optional[str] = None,
         timeout: int = 30,
         retry_attempts: int = 3

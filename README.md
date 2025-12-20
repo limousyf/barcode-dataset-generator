@@ -24,13 +24,11 @@ pip install -r requirements.txt
 
 ## Prerequisites
 
-This tool requires a running instance of the barcodes.dev API:
-
-```bash
-# In the barcodes.dev directory
-cd /path/to/barcodes.dev
-PORT=5001 python3 run.py
-```
+1. **Get an API key** from [barcodes.dev](https://barcodes.dev/account/api-keys)
+2. Set your API key as an environment variable:
+   ```bash
+   export BARCODE_API_KEY=your-api-key-here
+   ```
 
 ## Quick Start
 
@@ -42,7 +40,8 @@ python -m src.dataset_generator \
     --symbologies code128 qr datamatrix \
     --task detection \
     --degrade \
-    --split 80/10/10
+    --split 80/10/10 \
+    --api-key $BARCODE_API_KEY
 
 # Generate segmentation dataset with backgrounds
 python -m src.dataset_generator \
@@ -52,7 +51,8 @@ python -m src.dataset_generator \
     --task segmentation \
     --backgrounds ~/backgrounds \
     --barcodes-per-image 1-3 \
-    --degrade-prob 0.6
+    --degrade-prob 0.6 \
+    --api-key $BARCODE_API_KEY
 ```
 
 ## Usage
@@ -74,7 +74,8 @@ Options:
   --barcodes-per-image RANGE Range like "1-3" for multi-barcode images
   --split RATIO              Train/val/test split [default: 80/10/10]
   --format FORMAT            png or jpg [default: png]
-  --api-url URL              API server URL [default: http://localhost:5001]
+  --api-url URL              API server URL [default: https://barcodes.dev]
+  --api-key KEY              API key (or set BARCODE_API_KEY env var)
   --workers N                Parallel workers [default: 4]
   --help                     Show this message and exit
 ```
@@ -117,12 +118,19 @@ my-dataset/
 
 ## Configuration
 
-Create a `config.yaml` file for custom defaults:
+Set your API key via environment variable (recommended):
+
+```bash
+export BARCODE_API_KEY=your-api-key-here
+```
+
+Or create a `config.yaml` file for custom defaults:
 
 ```yaml
 api:
-  base_url: http://localhost:5001
+  base_url: https://barcodes.dev
   timeout: 30
+  # api_key: your-key  # Better to use BARCODE_API_KEY env var
 
 generation:
   default_samples_per_class: 100

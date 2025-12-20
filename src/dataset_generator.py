@@ -528,7 +528,7 @@ Examples:
                         help="Barcodes per image (e.g., '1' or '1-3')")
     parser.add_argument("--split", default="80/10/10", help="Train/val/test split ratio")
     parser.add_argument("--format", choices=["png", "jpg"], default="png", help="Image format")
-    parser.add_argument("--api-url", default="http://localhost:5001",
+    parser.add_argument("--api-url", default="https://barcodes.dev",
                         help="API server URL")
     parser.add_argument("--api-key", help="API key (or set BARCODE_API_KEY env var)")
     parser.add_argument("--workers", type=int, default=4, help="Parallel workers")

@@ -14,9 +14,9 @@
 api:
   # API server URL
   # Options:
+  #   - https://barcodes.dev   (production - default)
   #   - http://localhost:5001  (local development server)
-  #   - https://barcodes.dev   (production)
-  base_url: http://localhost:5001
+  base_url: https://barcodes.dev
 
   # API key for v2 endpoints (required for production)
   # Prefer using BARCODE_API_KEY environment variable instead

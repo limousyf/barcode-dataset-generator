@@ -15,7 +15,7 @@ import yaml
 @dataclass
 class APIConfig:
     """API connection configuration."""
-    base_url: str = "http://localhost:5001"
+    base_url: str = "https://barcodes.dev"
     api_key: Optional[str] = None  # Required for v2 endpoints on barcodes.dev
     timeout: int = 30
     retry_attempts: int = 3
