@@ -8,8 +8,9 @@ including request formatting, response parsing, and error handling.
 import base64
 import io
 import logging
+import time
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import requests
 from PIL import Image
@@ -38,6 +39,30 @@ class BarcodeResult:
     image: Image.Image
     metadata: Dict[str, Any]
     format: str = "png"
+    degradation_applied: bool = False
+    transformations: List[str] = field(default_factory=list)
+
+    @property
+    def regions(self) -> Dict[str, Any]:
+        """Get region metadata (polygons, bboxes)."""
+        return self.metadata.get("regions", {})
+
+    @property
+    def barcode_polygon(self) -> Optional[List[List[int]]]:
+        """Get barcode region polygon coordinates."""
+        barcode_region = self.regions.get("barcode_only", {})
+        return barcode_region.get("polygon")
+
+    @property
+    def barcode_bbox(self) -> Optional[List[int]]:
+        """Get barcode bounding box [x_min, y_min, x_max, y_max]."""
+        barcode_region = self.regions.get("barcode_only", {})
+        return barcode_region.get("bbox")
+
+    @property
+    def image_size(self) -> tuple:
+        """Get image dimensions (width, height)."""
+        return self.image.size
 
 
 class BarcodeAPIClient:
@@ -113,17 +138,19 @@ class BarcodeAPIClient:
         self,
         barcode_type: str,
         text: str,
-        degradation: Optional[Dict] = None
+        degradation: Optional[Dict] = None,
+        image_format: str = "PNG"
     ) -> Optional[BarcodeResult]:
         """
         Generate a barcode with optional degradation.
 
-        Uses v2 API endpoint which requires authentication.
+        Uses v2 API endpoint which requires authentication for production.
 
         Args:
             barcode_type: Symbology type (code128, qr, upca, etc.)
             text: Data to encode in barcode
             degradation: Optional degradation configuration
+            image_format: Output format (PNG, JPEG, WEBP)
 
         Returns:
             BarcodeResult with image and metadata, or None on failure
@@ -139,28 +166,101 @@ class BarcodeAPIClient:
                 "Set api_key when creating client or use set_api_key()."
             )
 
-        # TODO: Implement API call
-        raise NotImplementedError("API client not yet implemented")
+        # Build request payload
+        payload = {
+            "type": barcode_type,
+            "text": text,
+            "format": image_format.upper(),
+            "include_metadata": True,
+        }
 
-    def get_degradation_presets(self) -> List[Dict]:
+        if degradation:
+            payload["degradation"] = degradation
+
+        # Make request with retry
+        response = self._request_with_retry(
+            "POST",
+            "/api/v2/barcode/generate",
+            json=payload
+        )
+
+        if not response:
+            return None
+
+        data = response.json()
+
+        if not data.get("success", False):
+            error_msg = data.get("error", "Unknown error")
+            logger.error(f"Barcode generation failed: {error_msg}")
+            raise APIError(f"Barcode generation failed: {error_msg}")
+
+        # Decode image
+        image = self._decode_image(data["image"])
+
+        return BarcodeResult(
+            image=image,
+            metadata=data.get("metadata", {}),
+            format=data.get("format", "PNG").lower(),
+            degradation_applied=data.get("degradation_applied", False),
+            transformations=data.get("transformations", [])
+        )
+
+    def get_degradation_presets(self) -> Dict[str, Any]:
         """
         Get available degradation presets from API.
 
         Returns:
-            List of preset configurations
+            Dictionary of preset configurations
         """
-        # TODO: Implement API call
-        raise NotImplementedError("API client not yet implemented")
+        response = self._request_with_retry("GET", "/api/v2/presets")
 
-    def get_supported_symbologies(self) -> List[str]:
+        if not response:
+            return {}
+
+        return response.json()
+
+    def get_symbologies(self) -> Dict[str, List[str]]:
         """
-        Get list of supported barcode symbologies.
+        Get supported barcode symbologies grouped by category.
+
+        Returns:
+            Dictionary with categories as keys and lists of symbology names
+        """
+        response = self._request_with_retry("GET", "/api/v2/barcode/symbologies")
+
+        if not response:
+            return {}
+
+        data = response.json()
+        return data.get("categories", {})
+
+    def get_families(self) -> Dict[str, List[str]]:
+        """
+        Get barcode family groupings.
+
+        Returns:
+            Dictionary with family names as keys and lists of symbology names
+        """
+        response = self._request_with_retry("GET", "/api/v2/barcode/families")
+
+        if not response:
+            return {}
+
+        data = response.json()
+        return data.get("families", {})
+
+    def get_all_symbologies(self) -> List[str]:
+        """
+        Get flat list of all supported symbology names.
 
         Returns:
             List of symbology names
         """
-        # TODO: Implement API call
-        raise NotImplementedError("API client not yet implemented")
+        categories = self.get_symbologies()
+        all_symbologies = set()
+        for symbology_list in categories.values():
+            all_symbologies.update(symbology_list)
+        return sorted(all_symbologies)
 
     def health_check(self) -> bool:
         """
@@ -177,6 +277,90 @@ class BarcodeAPIClient:
             return response.status_code == 200
         except requests.RequestException:
             return False
+
+    def _request_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs
+    ) -> Optional[requests.Response]:
+        """
+        Make HTTP request with retry and exponential backoff.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint path
+            **kwargs: Additional arguments for requests
+
+        Returns:
+            Response object or None on failure
+        """
+        url = f"{self.base_url}{endpoint}"
+        last_error = None
+
+        for attempt in range(self.retry_attempts):
+            try:
+                response = self.session.request(
+                    method,
+                    url,
+                    timeout=self.timeout,
+                    **kwargs
+                )
+
+                # Check for rate limiting
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 60))
+                    logger.warning(f"Rate limited, waiting {retry_after}s")
+                    time.sleep(retry_after)
+                    continue
+
+                # Check for auth errors
+                if response.status_code == 401:
+                    raise AuthenticationError(
+                        "Invalid or missing API key. "
+                        "Check your BARCODE_API_KEY or --api-key."
+                    )
+
+                # Check for server errors (retry)
+                if response.status_code >= 500:
+                    logger.warning(
+                        f"Server error {response.status_code}, "
+                        f"attempt {attempt + 1}/{self.retry_attempts}"
+                    )
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+
+                # Success or client error (don't retry)
+                response.raise_for_status()
+                return response
+
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+                logger.warning(
+                    f"Connection error, attempt {attempt + 1}/{self.retry_attempts}: {e}"
+                )
+                time.sleep(2 ** attempt)
+
+            except requests.exceptions.Timeout as e:
+                last_error = e
+                logger.warning(
+                    f"Timeout, attempt {attempt + 1}/{self.retry_attempts}: {e}"
+                )
+                time.sleep(2 ** attempt)
+
+            except requests.exceptions.HTTPError as e:
+                # Client errors (4xx except 429) - don't retry
+                if e.response is not None and 400 <= e.response.status_code < 500:
+                    raise APIError(f"API error: {e.response.status_code} - {e.response.text}")
+                last_error = e
+                time.sleep(2 ** attempt)
+
+        # All retries exhausted
+        if last_error:
+            raise ConnectionError(
+                f"Failed to connect to {self.base_url} after {self.retry_attempts} attempts: {last_error}"
+            )
+        return None
 
     def _decode_image(self, base64_data: str) -> Image.Image:
         """Decode base64 image data to PIL Image."""
