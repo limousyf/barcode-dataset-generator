@@ -183,21 +183,85 @@ Generate systematic test sets with controlled degradation levels using `--degrad
 
 ```bash
 # Syntax: --degrade-sweep TYPE MIN MAX STEPS
+```
 
-# Y-axis rotation from -30° to +30° in 5 steps
-python -m src.dataset_generator -o ./rotation-test --symbologies code128 \
-    --samples 5 --output-format testplan --no-split \
-    --degrade-sweep rotation_y -30 30 5
+**Geometry sweep examples:**
+```bash
+# Y-axis rotation (horizontal tilt) from -30° to +30°
+--degrade-sweep rotation_y -30 30 5
 
-# Motion blur from light (0.5) to heavy (5.0) in 10 steps
+# X-axis rotation (vertical tilt) from -20° to +20°
+--degrade-sweep rotation_x -20 20 5
+
+# Z-axis rotation (in-plane rotation) from -15° to +15°
+--degrade-sweep rotation_z -15 15 5
+
+# Cylindrical warp (bottle/pipe surface) - radius from tight to loose
+--degrade-sweep cylindrical 20 100 5
+
+# Flexible wrinkle depth (plastic bag effect)
+--degrade-sweep wrinkle 0.1 0.4 5
+```
+
+**Damage sweep examples:**
+```bash
+# Motion blur intensity from light to heavy
+--degrade-sweep blur 0.5 5.0 10
+
+# Fading/contrast reduction
+--degrade-sweep fading 0.1 0.5 5
+
+# Scratch severity
+--degrade-sweep scratches 0.2 0.8 5
+
+# Ink bleeding/spread
+--degrade-sweep ink_bleeding 0.2 0.8 5
+
+# Broken/interrupted bars
+--degrade-sweep broken_bars 0.5 1.0 5
+
+# Low ink/faded print effect
+--degrade-sweep low_ink 0.3 0.8 5
+
+# White noise/static
+--degrade-sweep white_noise 0.4 0.8 5
+
+# Glare/hotspot intensity
+--degrade-sweep glare 0.2 0.8 5
+
+# Water droplet effect
+--degrade-sweep water_droplets 0.2 0.8 5
+
+# Stains/dirt marks
+--degrade-sweep stains 0.2 0.8 5
+
+# Smudges/fingerprints
+--degrade-sweep smudges 0.2 0.7 5
+
+# Partial label removal/damage
+--degrade-sweep partial_removal 0.1 0.5 5
+
+# Low light/darkness
+--degrade-sweep low_light 0.2 0.7 5
+
+# Overexposure/washout
+--degrade-sweep overexposure 0.2 0.7 5
+```
+
+**Material sweep examples:**
+```bash
+# Metallic reflection (shiny surface)
+--degrade-sweep metallic 0.2 0.9 5
+
+# Transparent overlay (plastic wrap)
+--degrade-sweep transparent 0.3 0.8 5
+```
+
+**Full command example:**
+```bash
 python -m src.dataset_generator -o ./blur-test --symbologies code128 \
     --samples 10 --output-format testplan --no-split \
     --degrade-sweep blur 0.5 5.0 10
-
-# Fading/contrast reduction sweep
-python -m src.dataset_generator -o ./fading-test --symbologies code128 \
-    --samples 5 --output-format testplan --no-split \
-    --degrade-sweep fading 0.1 0.5 5
 ```
 
 **Available sweep types:**
