@@ -2,14 +2,29 @@
 YOLO label/annotation generation.
 
 Converts barcode metadata (polygons, bounding boxes) into YOLO format annotations.
+
+.. deprecated::
+    This module is deprecated in favor of the formats.yolo module.
+    Use ``from src.formats import YOLOFormat`` instead.
 """
 
-from typing import Dict, List, Tuple, Optional
-from PIL import Image
+import warnings
+from typing import List, Tuple
 
 
 class LabelGenerator:
-    """Generates YOLO format annotations from barcode metadata."""
+    """Generates YOLO format annotations from barcode metadata.
+
+    .. deprecated::
+        This class is deprecated. Use :class:`src.formats.yolo.YOLOFormat` instead.
+    """
+
+    def __init__(self):
+        warnings.warn(
+            "LabelGenerator is deprecated. Use src.formats.yolo.YOLOFormat instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
     def generate_detection_label(
         self,

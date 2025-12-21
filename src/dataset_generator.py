@@ -2,7 +2,7 @@
 Main dataset generation orchestrator.
 
 This module coordinates barcode generation, degradation, placement,
-and annotation creation to produce complete YOLO datasets.
+and annotation creation to produce datasets in various formats.
 """
 
 import argparse
@@ -18,7 +18,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .api_client import BarcodeAPIClient, BarcodeResult, APIError
-from .label_generator import LabelGenerator
+from .formats import get_format, OutputFormat, AnnotationData
 from .background_manager import BackgroundManager
 from .config import Config
 from .utils import (
@@ -33,13 +33,14 @@ logger = logging.getLogger(__name__)
 
 
 class DatasetGenerator:
-    """Generates YOLO datasets using barcodes.dev API."""
+    """Generates datasets using barcodes.dev API in various formats."""
 
     def __init__(
         self,
         output_folder: Path,
         api_client: BarcodeAPIClient,
-        config: Optional[Config] = None
+        config: Optional[Config] = None,
+        output_format: str = "yolo"
     ):
         """
         Initialize dataset generator.
@@ -48,12 +49,17 @@ class DatasetGenerator:
             output_folder: Output directory for dataset
             api_client: Configured API client
             config: Optional configuration object
+            output_format: Output format (yolo, testplan, etc.)
         """
         self.output_folder = Path(output_folder)
         self.api_client = api_client
         self.config = config or Config()
-        self.label_generator = LabelGenerator()
+        self.output_format_name = output_format
         self.background_manager = None
+
+        # Initialize format handler
+        format_class = get_format(output_format)
+        self.format_handler: OutputFormat = format_class(self.output_folder)
 
         # Class mapping for labels
         self.class_to_id: Dict[str, int] = {}
@@ -75,7 +81,8 @@ class DatasetGenerator:
         split_ratio: str = "80/10/10",
         image_format: str = "png",
         barcodes_per_image: str = "1",
-        workers: int = 4
+        workers: int = 4,
+        enable_split: bool = True
     ) -> Dict:
         """
         Generate complete dataset.
@@ -91,6 +98,7 @@ class DatasetGenerator:
             image_format: Output image format (png, jpg)
             barcodes_per_image: Number of barcodes per image (e.g., "1" or "1-3")
             workers: Number of parallel workers
+            enable_split: Whether to create train/val/test splits
 
         Returns:
             Statistics dictionary with generation results
@@ -98,8 +106,13 @@ class DatasetGenerator:
         # Build class mapping based on label mode
         self._build_class_mapping(symbologies, label_mode)
 
-        # Setup directory structure
-        self._setup_directories(task)
+        # Setup format handler with class mapping
+        self.format_handler.set_class_mapping(self.class_to_id)
+        self.format_handler.setup_directories(
+            task=task,
+            class_names=list(self.id_to_class.values()),
+            enable_split=enable_split
+        )
 
         # Parse split ratio
         train_ratio, val_ratio, test_ratio = parse_split_ratio(split_ratio)
@@ -209,8 +222,8 @@ class DatasetGenerator:
                         stats["by_symbology"][symbology]["failed"] += 1
                     pbar.update(1)
 
-        # Write data.yaml for YOLO
-        self._write_data_yaml(task)
+        # Finalize dataset (write manifest/config files)
+        self.format_handler.finalize(task, stats)
 
         logger.info(f"Dataset generation complete: {stats['generated']}/{stats['total_requested']} samples")
         return stats
@@ -332,36 +345,44 @@ class DatasetGenerator:
         if not result:
             return None
 
-        # Get class ID
+        # Get class ID and name
         class_id = self._get_class_id(symbology, label_mode)
         class_name = self.id_to_class.get(class_id, symbology)
 
         # Generate filename
-        filename = f"{symbology}_{sample_idx:06d}"
+        filename = f"{symbology}_{sample_idx:06d}.{image_format}"
 
         # Handle background embedding if configured
         if self.background_manager and task != "classification":
             num_barcodes = random.randint(min_barcodes, max_barcodes)
-            final_image, annotations = self._embed_on_background(
-                result, class_id, task, num_barcodes
+            final_image, adjusted_result = self._embed_on_background(
+                result, num_barcodes
             )
         else:
             final_image = result.image
-            annotations = self._create_annotation(result, class_id, task)
+            adjusted_result = result
 
-        # Save based on task type
-        if task == "classification":
-            # Save image to class folder
-            img_path = self.output_folder / split / class_name / f"{filename}.{image_format}"
-            final_image.save(img_path)
-        else:
-            # Save image and label
-            img_path = self.output_folder / "images" / split / f"{filename}.{image_format}"
-            label_path = self.output_folder / "labels" / split / f"{filename}.txt"
+        # Build AnnotationData for format handler
+        annotation_data = AnnotationData(
+            image=final_image,
+            image_filename=filename,
+            image_size=final_image.size,
+            symbology=symbology,
+            encoded_value=adjusted_result.input_text,
+            printed_text=adjusted_result.input_text,  # May differ for some symbologies
+            barcode_only_polygon=adjusted_result.barcode_polygon,
+            barcode_only_bbox=adjusted_result.barcode_bbox,
+            text_region_polygon=adjusted_result.text_region_polygon,
+            full_region_polygon=adjusted_result.full_region_polygon,
+            orientation="top-left",  # TODO: Calculate from transformations
+            class_id=class_id,
+            class_name=class_name,
+            degradation_applied=adjusted_result.degradation_applied,
+            transformations=adjusted_result.transformations,
+        )
 
-            final_image.save(img_path)
-            with open(label_path, "w") as f:
-                f.write("\n".join(annotations))
+        # Save using format handler
+        self.format_handler.save_annotation(annotation_data, split, task)
 
         return split
 
@@ -394,53 +415,19 @@ class DatasetGenerator:
 
         return degradation
 
-    def _create_annotation(
-        self,
-        result: BarcodeResult,
-        class_id: int,
-        task: str
-    ) -> List[str]:
-        """Create YOLO annotation from barcode result."""
-        annotations = []
-        image_size = result.image_size
-
-        if task == "segmentation" and result.barcode_polygon:
-            # Use polygon for segmentation
-            polygon = [tuple(p) for p in result.barcode_polygon]
-            annotation = self.label_generator.generate_segmentation_label(
-                class_id, polygon, image_size
-            )
-            annotations.append(annotation)
-        elif result.barcode_bbox:
-            # Use bbox for detection
-            bbox = tuple(result.barcode_bbox)
-            annotation = self.label_generator.generate_detection_label(
-                class_id, bbox, image_size
-            )
-            annotations.append(annotation)
-        elif result.barcode_polygon:
-            # Derive bbox from polygon
-            polygon = [tuple(p) for p in result.barcode_polygon]
-            bbox = self.label_generator.bbox_from_polygon(polygon)
-            annotation = self.label_generator.generate_detection_label(
-                class_id, bbox, image_size
-            )
-            annotations.append(annotation)
-
-        return annotations
-
     def _embed_on_background(
         self,
         result: BarcodeResult,
-        class_id: int,
-        task: str,
         num_barcodes: int = 1
-    ) -> Tuple[Image.Image, List[str]]:
-        """Embed barcode(s) on background image."""
+    ) -> Tuple[Image.Image, BarcodeResult]:
+        """Embed barcode(s) on background image.
+
+        Returns:
+            Tuple of (background image, adjusted BarcodeResult with offset coordinates)
+        """
         target_size = self.config.backgrounds.target_size
         background = self.background_manager.get_random_background(target_size)
 
-        annotations = []
         existing_bboxes = []
 
         # For now, just place the first barcode
@@ -454,50 +441,60 @@ class DatasetGenerator:
             x, y = position
             background.paste(barcode_img, (x, y))
 
-            # Adjust coordinates
-            bc_w, bc_h = barcode_img.size
-            bbox = (x, y, x + bc_w, y + bc_h)
-            existing_bboxes.append(bbox)
+            # Create adjusted metadata with offset coordinates
+            adjusted_metadata = dict(result.metadata)
+            adjusted_regions = {}
 
-            if task == "segmentation" and result.barcode_polygon:
-                # Offset polygon
-                polygon = [(p[0] + x, p[1] + y) for p in result.barcode_polygon]
-                annotation = self.label_generator.generate_segmentation_label(
-                    class_id, polygon, target_size
-                )
-            else:
-                annotation = self.label_generator.generate_detection_label(
-                    class_id, bbox, target_size
-                )
-            annotations.append(annotation)
+            # Offset barcode_only region
+            if result.barcode_polygon:
+                adjusted_regions["barcode_only"] = {
+                    "polygon": [[p[0] + x, p[1] + y] for p in result.barcode_polygon],
+                    "bbox": [
+                        result.barcode_bbox[0] + x if result.barcode_bbox else x,
+                        result.barcode_bbox[1] + y if result.barcode_bbox else y,
+                        result.barcode_bbox[2] + x if result.barcode_bbox else x + barcode_img.width,
+                        result.barcode_bbox[3] + y if result.barcode_bbox else y + barcode_img.height,
+                    ] if result.barcode_bbox else [x, y, x + barcode_img.width, y + barcode_img.height]
+                }
 
-        return background, annotations
+            # Offset text_region
+            if result.text_region_polygon:
+                adjusted_regions["text_region"] = {
+                    "polygon": [[p[0] + x, p[1] + y] for p in result.text_region_polygon]
+                }
 
-    def _write_data_yaml(self, task: str) -> None:
-        """Write YOLO data.yaml configuration file."""
-        yaml_content = f"""# YOLO Dataset Configuration
-# Generated by barcode-dataset-generator
+            # Offset full_region
+            if result.full_region_polygon:
+                adjusted_regions["full"] = {
+                    "polygon": [[p[0] + x, p[1] + y] for p in result.full_region_polygon]
+                }
 
-path: {self.output_folder.absolute()}
-train: {"images/train" if task != "classification" else "train"}
-val: {"images/val" if task != "classification" else "val"}
-test: {"images/test" if task != "classification" else "test"}
+            adjusted_metadata["regions"] = adjusted_regions
 
-nc: {len(self.id_to_class)}
-names: {list(self.id_to_class.values())}
-"""
-        with open(self.output_folder / "data.yaml", "w") as f:
-            f.write(yaml_content)
+            # Create new BarcodeResult with adjusted metadata
+            adjusted_result = BarcodeResult(
+                image=background,
+                metadata=adjusted_metadata,
+                format=result.format,
+                degradation_applied=result.degradation_applied,
+                transformations=result.transformations,
+                input_text=result.input_text,
+            )
+
+            return background, adjusted_result
+
+        # If placement failed, return original
+        return background, result
 
 
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Generate YOLO datasets for barcode detection",
+        description="Generate barcode datasets for ML training and testing",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate small test dataset (requires API key)
+  # Generate YOLO dataset (default)
   python -m src.dataset_generator -o ./test-dataset -n 10 \\
       --symbologies code128 qr --api-key YOUR_API_KEY
 
@@ -509,6 +506,14 @@ Examples:
   python -m src.dataset_generator -o ./barcode-seg -n 500 \\
       --symbologies code128 qr upca --task segmentation \\
       --backgrounds ~/backgrounds --barcodes-per-image 1-3
+
+  # Generate testplan dataset for decoder testing (flat structure)
+  python -m src.dataset_generator -o ./decoder-tests -n 50 \\
+      --symbologies code128 qr upca --output-format testplan --no-split
+
+  # Generate testplan with train/val/test splits
+  python -m src.dataset_generator -o ./decoder-tests -n 100 \\
+      --symbologies code128 qr --output-format testplan --split 80/10/10
 """
     )
     parser.add_argument("--output", "-o", required=True, help="Output directory")
@@ -516,6 +521,8 @@ Examples:
     parser.add_argument("--symbologies", nargs="+", help="Symbologies to include")
     parser.add_argument("--categories", nargs="+", help="Categories to include (linear, 2d, etc.)")
     parser.add_argument("--families", nargs="+", help="Families to include (code128, ean_upc, etc.)")
+    parser.add_argument("--output-format", "-f", choices=["yolo", "testplan"],
+                        default="yolo", help="Output annotation format")
     parser.add_argument("--task", choices=["detection", "segmentation", "classification"],
                         default="detection", help="Task type")
     parser.add_argument("--label-mode", choices=["symbology", "category", "family", "binary"],
@@ -527,6 +534,8 @@ Examples:
     parser.add_argument("--barcodes-per-image", default="1",
                         help="Barcodes per image (e.g., '1' or '1-3')")
     parser.add_argument("--split", default="80/10/10", help="Train/val/test split ratio")
+    parser.add_argument("--no-split", action="store_true",
+                        help="Disable train/val/test splitting (flat directory)")
     parser.add_argument("--format", choices=["png", "jpg"], default="png", help="Image format")
     parser.add_argument("--api-url", default="https://barcodes.dev",
                         help="API server URL")
@@ -584,9 +593,13 @@ Examples:
         print("Error: No symbologies specified. Use --symbologies, --categories, or --families")
         sys.exit(1)
 
+    # Determine if splitting is enabled
+    enable_split = not args.no_split
+
     print(f"Generating dataset with {len(symbologies)} symbologies:")
     print(f"  Symbologies: {', '.join(symbologies[:5])}{'...' if len(symbologies) > 5 else ''}")
     print(f"  Samples per class: {args.samples}")
+    print(f"  Format: {args.output_format}")
     print(f"  Task: {args.task}")
     print(f"  Output: {args.output}")
     print()
@@ -595,7 +608,8 @@ Examples:
     generator = DatasetGenerator(
         output_folder=Path(args.output),
         api_client=client,
-        config=config
+        config=config,
+        output_format=args.output_format
     )
 
     # Set backgrounds if provided
@@ -614,15 +628,20 @@ Examples:
             split_ratio=args.split,
             image_format=args.format,
             barcodes_per_image=args.barcodes_per_image,
-            workers=args.workers
+            workers=args.workers,
+            enable_split=enable_split
         )
 
         print("\nGeneration complete!")
         print(f"  Total generated: {stats['generated']}/{stats['total_requested']}")
         print(f"  Failed: {stats['failed']}")
-        print(f"  Train: {stats['train']}, Val: {stats['val']}, Test: {stats['test']}")
+        if enable_split:
+            print(f"  Train: {stats['train']}, Val: {stats['val']}, Test: {stats['test']}")
         print(f"\nDataset saved to: {args.output}")
-        print(f"Use data.yaml for YOLO training: {Path(args.output) / 'data.yaml'}")
+        if args.output_format == "yolo":
+            print(f"Use data.yaml for YOLO training: {Path(args.output) / 'data.yaml'}")
+        elif args.output_format == "testplan":
+            print(f"See manifest.json for dataset summary: {Path(args.output) / 'manifest.json'}")
 
     except KeyboardInterrupt:
         print("\nGeneration interrupted by user")

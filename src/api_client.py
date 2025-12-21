@@ -41,6 +41,7 @@ class BarcodeResult:
     format: str = "png"
     degradation_applied: bool = False
     transformations: List[str] = field(default_factory=list)
+    input_text: str = ""  # The original text encoded in the barcode
 
     @property
     def regions(self) -> Dict[str, Any]:
@@ -58,6 +59,19 @@ class BarcodeResult:
         """Get barcode bounding box [x_min, y_min, x_max, y_max]."""
         barcode_region = self.regions.get("barcode_only", {})
         return barcode_region.get("bbox")
+
+    @property
+    def text_region_polygon(self) -> Optional[List[List[int]]]:
+        """Get text label region polygon coordinates."""
+        text_region = self.regions.get("text_region", {})
+        return text_region.get("polygon")
+
+    @property
+    def full_region_polygon(self) -> Optional[List[List[int]]]:
+        """Get full barcode region including quiet zones."""
+        # Try multiple possible key names
+        full_region = self.regions.get("full", self.regions.get("full_region", {}))
+        return full_region.get("polygon")
 
     @property
     def image_size(self) -> tuple:
@@ -202,7 +216,8 @@ class BarcodeAPIClient:
             metadata=data.get("metadata", {}),
             format=data.get("format", "PNG").lower(),
             degradation_applied=data.get("degradation_applied", False),
-            transformations=data.get("transformations", [])
+            transformations=data.get("transformations", []),
+            input_text=text,
         )
 
     def get_degradation_presets(self) -> Dict[str, Any]:
