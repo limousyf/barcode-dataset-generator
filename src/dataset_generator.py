@@ -529,6 +529,8 @@ Examples:
     )
     parser.add_argument("--output", "-o", required=True, help="Output directory")
     parser.add_argument("--samples", "-n", type=int, default=100, help="Samples per class")
+    parser.add_argument("--single", "-1", action="store_true",
+                        help="Generate a single sample (quick test mode)")
     parser.add_argument("--symbologies", nargs="+", help="Symbologies to include")
     parser.add_argument("--categories", nargs="+", help="Categories to include (linear, 2d, etc.)")
     parser.add_argument("--families", nargs="+", help="Families to include (code128, ean_upc, etc.)")
@@ -604,16 +606,26 @@ Examples:
         print("Error: No symbologies specified. Use --symbologies, --categories, or --families")
         sys.exit(1)
 
-    # Determine if splitting is enabled
-    enable_split = not args.no_split
-
-    print(f"Generating dataset with {len(symbologies)} symbologies:")
-    print(f"  Symbologies: {', '.join(symbologies[:5])}{'...' if len(symbologies) > 5 else ''}")
-    print(f"  Samples per class: {args.samples}")
-    print(f"  Format: {args.output_format}")
-    print(f"  Task: {args.task}")
-    print(f"  Output: {args.output}")
-    print()
+    # Handle --single mode
+    if args.single:
+        samples_per_class = 1
+        enable_split = False
+        # Use only first symbology in single mode
+        symbologies = symbologies[:1]
+        print(f"Single sample mode: generating 1 {symbologies[0]} barcode")
+        print(f"  Format: {args.output_format}")
+        print(f"  Output: {args.output}")
+        print()
+    else:
+        samples_per_class = args.samples
+        enable_split = not args.no_split
+        print(f"Generating dataset with {len(symbologies)} symbologies:")
+        print(f"  Symbologies: {', '.join(symbologies[:5])}{'...' if len(symbologies) > 5 else ''}")
+        print(f"  Samples per class: {samples_per_class}")
+        print(f"  Format: {args.output_format}")
+        print(f"  Task: {args.task}")
+        print(f"  Output: {args.output}")
+        print()
 
     # Create generator
     generator = DatasetGenerator(
@@ -631,7 +643,7 @@ Examples:
     try:
         stats = generator.generate(
             symbologies=symbologies,
-            samples_per_class=args.samples,
+            samples_per_class=samples_per_class,
             task=args.task,
             label_mode=args.label_mode,
             enable_degradation=args.degrade,
