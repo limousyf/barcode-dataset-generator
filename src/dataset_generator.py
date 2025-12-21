@@ -54,15 +54,33 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
     Each transformation must have a 'type' key matching the API schema.
 
     Supported sweep types:
+
+    GEOMETRY:
+    - rotation_y: Y-axis rotation angle (-180 to 180 degrees)
+    - rotation_x: X-axis rotation angle (-90 to 90 degrees)
+    - rotation_z: Z-axis rotation angle (-90 to 90 degrees)
+    - cylindrical: Cylindrical warp radius (10-500)
+    - wrinkle: Flexible wrinkle depth (0.05-0.5)
+
+    DAMAGE:
     - blur/motion_blur: Motion blur intensity (0.5-10.0)
-    - rotation_y: Y-axis rotation angle in degrees (-180 to 180)
-    - rotation_x: X-axis rotation angle in degrees (-90 to 90)
-    - rotation_z: Z-axis rotation angle in degrees (-90 to 90)
     - fading: Contrast reduction (0.1-0.9)
     - scratches: Scratch severity (0.1-1.0)
-    - glare: Glare intensity (0.1-1.0)
+    - ink_bleeding: Ink bleed intensity (0.1-1.0)
+    - broken_bars: Bar break intensity (0.5-1.0)
+    - low_ink: Low ink effect intensity (0.3-1.0)
+    - white_noise: Noise intensity (0.4-1.0)
+    - glare: Glare/hotspot intensity (0.1-1.0)
+    - water_droplets: Water droplet intensity (0.1-1.0)
+    - stains: Stain intensity (0.1-1.0)
+    - smudges: Smudge intensity (0.1-1.0)
+    - partial_removal: Label removal coverage (0.1-0.6)
     - low_light: Darkness level (0.1-0.9)
-    - overexposure: Brightness level (0.1-0.9)
+    - overexposure: Brightness/washout level (0.1-0.9)
+
+    MATERIALS:
+    - metallic: Metallic reflection specularity (0.1-1.0)
+    - transparent: Transparent overlay opacity (0.1-0.9)
     """
     configs = []
     step_size = (max_val - min_val) / max(steps - 1, 1) if steps > 1 else 0
@@ -72,46 +90,63 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
 
         # Build config in API's expected format
         # Categories must be LISTS of transformation objects with 'type' key
-        if sweep_type in ("blur", "motion_blur"):
-            config = {
-                "damage": [{"type": "motion_blur", "intensity": value, "direction": 0}]
-            }
-        elif sweep_type == "rotation_y":
-            config = {
-                "geometry": [{"type": "y_axis_rotation", "angle_degrees": value}]
-            }
+
+        # === GEOMETRY transforms ===
+        if sweep_type == "rotation_y":
+            config = {"geometry": [{"type": "y_axis_rotation", "angle_degrees": value}]}
         elif sweep_type == "rotation_x":
-            config = {
-                "geometry": [{"type": "x_axis_rotation", "angle_degrees": value}]
-            }
+            config = {"geometry": [{"type": "x_axis_rotation", "angle_degrees": value}]}
         elif sweep_type == "rotation_z":
-            config = {
-                "geometry": [{"type": "z_axis_rotation", "angle_degrees": value}]
-            }
+            config = {"geometry": [{"type": "z_axis_rotation", "angle_degrees": value}]}
+        elif sweep_type == "cylindrical":
+            config = {"geometry": [{"type": "cylindrical", "radius": value, "axis": "vertical", "wrap_angle": 180}]}
+        elif sweep_type == "wrinkle":
+            config = {"geometry": [{"type": "flexible_wrinkle", "depth": value, "fold_count": 3, "direction": "random"}]}
+
+        # === DAMAGE transforms ===
+        elif sweep_type in ("blur", "motion_blur"):
+            config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": 0}]}
         elif sweep_type == "fading":
-            config = {
-                "damage": [{"type": "fading", "contrast_reduction": value, "pattern": "uniform"}]
-            }
+            config = {"damage": [{"type": "fading", "contrast_reduction": value, "pattern": "uniform"}]}
         elif sweep_type == "scratches":
-            config = {
-                "damage": [{"type": "scratches", "severity": value, "count": 3}]
-            }
+            config = {"damage": [{"type": "scratches", "severity": value, "count": 3}]}
+        elif sweep_type == "ink_bleeding":
+            config = {"damage": [{"type": "ink_bleeding", "intensity": value}]}
+        elif sweep_type == "broken_bars":
+            config = {"damage": [{"type": "broken_bars", "intensity": value}]}
+        elif sweep_type == "low_ink":
+            config = {"damage": [{"type": "low_ink", "intensity": value}]}
+        elif sweep_type == "white_noise":
+            config = {"damage": [{"type": "white_noise", "intensity": value}]}
         elif sweep_type == "glare":
-            config = {
-                "damage": [{"type": "glare", "intensity": value}]
-            }
+            config = {"damage": [{"type": "glare", "intensity": value}]}
+        elif sweep_type == "water_droplets":
+            config = {"damage": [{"type": "water_droplets", "intensity": value}]}
+        elif sweep_type == "stains":
+            config = {"damage": [{"type": "stains", "intensity": value}]}
+        elif sweep_type == "smudges":
+            config = {"damage": [{"type": "smudges", "intensity": value}]}
+        elif sweep_type == "partial_removal":
+            config = {"damage": [{"type": "partial_removal", "coverage": value}]}
         elif sweep_type == "low_light":
-            config = {
-                "damage": [{"type": "low_light", "darkness": value}]
-            }
+            config = {"damage": [{"type": "low_light", "darkness": value}]}
         elif sweep_type == "overexposure":
-            config = {
-                "damage": [{"type": "overexposure", "brightness": value}]
-            }
+            config = {"damage": [{"type": "overexposure", "brightness": value}]}
+
+        # === MATERIAL transforms ===
+        elif sweep_type == "metallic":
+            config = {"materials": [{"type": "metallic_reflection", "specularity": value}]}
+        elif sweep_type == "transparent":
+            config = {"materials": [{"type": "transparent_overlay", "opacity": value}]}
+
         else:
-            raise ValueError(f"Unknown sweep type: {sweep_type}. "
-                           f"Supported: blur, motion_blur, rotation_y, rotation_x, rotation_z, "
-                           f"fading, scratches, glare, low_light, overexposure")
+            supported = (
+                "rotation_y, rotation_x, rotation_z, cylindrical, wrinkle, "
+                "blur, motion_blur, fading, scratches, ink_bleeding, broken_bars, low_ink, "
+                "white_noise, glare, water_droplets, stains, smudges, partial_removal, "
+                "low_light, overexposure, metallic, transparent"
+            )
+            raise ValueError(f"Unknown sweep type: {sweep_type}. Supported: {supported}")
 
         configs.append(config)
 

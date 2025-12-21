@@ -202,17 +202,29 @@ python -m src.dataset_generator -o ./fading-test --symbologies code128 \
 
 **Available sweep types:**
 
-| Sweep Type | Description | Valid Range |
-|------------|-------------|-------------|
-| `rotation_y` | Y-axis rotation (horizontal tilt) | -180° to 180° |
-| `rotation_x` | X-axis rotation (vertical tilt) | -90° to 90° |
-| `rotation_z` | Z-axis rotation (in-plane) | -90° to 90° |
-| `blur` / `motion_blur` | Motion blur intensity | 0.5 to 10.0 |
-| `fading` | Contrast reduction | 0.1 to 0.9 |
-| `scratches` | Scratch severity | 0.1 to 1.0 |
-| `glare` | Glare/hotspot intensity | 0.1 to 1.0 |
-| `low_light` | Darkness level | 0.1 to 0.9 |
-| `overexposure` | Brightness/washout level | 0.1 to 0.9 |
+| Category | Sweep Type | Description | Valid Range |
+|----------|------------|-------------|-------------|
+| **Geometry** | `rotation_y` | Y-axis rotation (horizontal tilt) | -180° to 180° |
+| | `rotation_x` | X-axis rotation (vertical tilt) | -90° to 90° |
+| | `rotation_z` | Z-axis rotation (in-plane) | -90° to 90° |
+| | `cylindrical` | Cylindrical surface warp radius | 10 to 500 |
+| | `wrinkle` | Flexible surface wrinkle depth | 0.05 to 0.5 |
+| **Damage** | `blur` / `motion_blur` | Motion blur intensity | 0.5 to 10.0 |
+| | `fading` | Contrast reduction | 0.1 to 0.9 |
+| | `scratches` | Scratch severity | 0.1 to 1.0 |
+| | `ink_bleeding` | Ink bleed/spread intensity | 0.1 to 1.0 |
+| | `broken_bars` | Bar break intensity | 0.5 to 1.0 |
+| | `low_ink` | Low ink/faded print effect | 0.3 to 1.0 |
+| | `white_noise` | Random noise intensity | 0.4 to 1.0 |
+| | `glare` | Glare/hotspot intensity | 0.1 to 1.0 |
+| | `water_droplets` | Water droplet effect intensity | 0.1 to 1.0 |
+| | `stains` | Stain/dirt intensity | 0.1 to 1.0 |
+| | `smudges` | Smudge/fingerprint intensity | 0.1 to 1.0 |
+| | `partial_removal` | Label removal coverage | 0.1 to 0.6 |
+| | `low_light` | Darkness level | 0.1 to 0.9 |
+| | `overexposure` | Brightness/washout level | 0.1 to 0.9 |
+| **Materials** | `metallic` | Metallic reflection specularity | 0.1 to 1.0 |
+| | `transparent` | Transparent overlay opacity | 0.1 to 0.9 |
 
 ### Custom Configuration
 
@@ -227,11 +239,16 @@ Example `my-degradation.json`:
 ```json
 {
   "geometry": [
-    {"type": "y_axis_rotation", "angle_degrees": 15}
+    {"type": "y_axis_rotation", "angle_degrees": 15},
+    {"type": "cylindrical", "radius": 50, "axis": "vertical", "wrap_angle": 180}
   ],
   "damage": [
     {"type": "motion_blur", "intensity": 2.0, "direction": 45},
-    {"type": "scratches", "count": 3, "severity": 0.4}
+    {"type": "scratches", "count": 3, "severity": 0.4},
+    {"type": "stains", "stain_count": 2, "intensity": 0.5}
+  ],
+  "materials": [
+    {"type": "transparent_overlay", "opacity": 0.8}
   ]
 }
 ```
@@ -244,6 +261,32 @@ You can also provide a list of configs to cycle through:
   {"damage": [{"type": "fading", "contrast_reduction": 0.6}]}
 ]
 ```
+
+**Available transformation types for custom configs:**
+
+| Category | Type | Key Parameters |
+|----------|------|----------------|
+| `geometry` | `y_axis_rotation` | `angle_degrees` |
+| | `x_axis_rotation` | `angle_degrees` |
+| | `z_axis_rotation` | `angle_degrees` |
+| | `cylindrical` | `radius`, `axis`, `wrap_angle` |
+| | `flexible_wrinkle` | `fold_count`, `depth`, `direction` |
+| `damage` | `motion_blur` | `intensity`, `direction` |
+| | `fading` | `contrast_reduction`, `pattern` |
+| | `scratches` | `count`, `severity` |
+| | `ink_bleeding` | `intensity`, `spread_radius` |
+| | `broken_bars` | `intensity`, `streak_count` |
+| | `low_ink` | `intensity`, `speckle_density` |
+| | `white_noise` | `intensity`, `noise_density` |
+| | `glare` | `intensity`, `size`, `light_direction` |
+| | `water_droplets` | `intensity`, `droplet_count` |
+| | `stains` | `intensity`, `stain_count`, `stain_type` |
+| | `smudges` | `intensity`, `smudge_count`, `smudge_type` |
+| | `partial_removal` | `coverage`, `removal_count` |
+| | `low_light` | `darkness`, `uneven` |
+| | `overexposure` | `brightness`, `clip_highlights` |
+| `materials` | `metallic_reflection` | `specularity`, `roughness` |
+| | `transparent_overlay` | `opacity`, `refraction_index` |
 
 ## Configuration
 
