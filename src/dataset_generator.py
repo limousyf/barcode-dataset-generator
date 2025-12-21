@@ -447,20 +447,31 @@ class DatasetGenerator:
 
             # Offset barcode_only region
             if result.barcode_polygon:
+                adjusted_polygon = [[p[0] + x, p[1] + y] for p in result.barcode_polygon]
+                # Calculate bbox from polygon if not provided by API
+                if result.barcode_bbox:
+                    adjusted_bbox = [
+                        result.barcode_bbox[0] + x,
+                        result.barcode_bbox[1] + y,
+                        result.barcode_bbox[2] + x,
+                        result.barcode_bbox[3] + y,
+                    ]
+                else:
+                    # Derive bbox from polygon
+                    xs = [p[0] for p in adjusted_polygon]
+                    ys = [p[1] for p in adjusted_polygon]
+                    adjusted_bbox = [min(xs), min(ys), max(xs), max(ys)]
+
                 adjusted_regions["barcode_only"] = {
-                    "polygon": [[p[0] + x, p[1] + y] for p in result.barcode_polygon],
-                    "bbox": [
-                        result.barcode_bbox[0] + x if result.barcode_bbox else x,
-                        result.barcode_bbox[1] + y if result.barcode_bbox else y,
-                        result.barcode_bbox[2] + x if result.barcode_bbox else x + barcode_img.width,
-                        result.barcode_bbox[3] + y if result.barcode_bbox else y + barcode_img.height,
-                    ] if result.barcode_bbox else [x, y, x + barcode_img.width, y + barcode_img.height]
+                    "polygon": adjusted_polygon,
+                    "bbox": adjusted_bbox
                 }
 
-            # Offset text_region
+            # Offset text region (use "text" key to match API response format)
             if result.text_region_polygon:
-                adjusted_regions["text_region"] = {
-                    "polygon": [[p[0] + x, p[1] + y] for p in result.text_region_polygon]
+                adjusted_regions["text"] = {
+                    "polygon": [[p[0] + x, p[1] + y] for p in result.text_region_polygon],
+                    "present": True
                 }
 
             # Offset full_region
