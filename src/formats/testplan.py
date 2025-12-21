@@ -22,19 +22,25 @@ class TestplanFormat(OutputFormat):
     Output structure (flat, default):
         output_folder/
         ├── manifest.json
-        ├── image_001.png
-        ├── image_001.json
-        ├── image_002.png
-        └── image_002.json
+        ├── images/
+        │   ├── image_001.png
+        │   └── image_002.png
+        └── labels/
+            ├── image_001.json
+            └── image_002.json
 
     Output structure (with splits):
         output_folder/
         ├── manifest.json
         ├── train/
-        │   ├── image_001.png
-        │   └── image_001.json
+        │   ├── images/
+        │   └── labels/
         ├── val/
+        │   ├── images/
+        │   └── labels/
         └── test/
+            ├── images/
+            └── labels/
     """
 
     name = "testplan"
@@ -60,14 +66,18 @@ class TestplanFormat(OutputFormat):
         class_names: List[str],
         enable_split: bool = True
     ) -> None:
-        """Create testplan directory structure."""
+        """Create testplan directory structure with separate images/labels folders."""
         self.enable_split = enable_split
         self.output_folder.mkdir(parents=True, exist_ok=True)
 
         if self.enable_split:
             for split in ["train", "val", "test"]:
-                (self.output_folder / split).mkdir(parents=True, exist_ok=True)
-        # else: single flat folder (default)
+                (self.output_folder / split / "images").mkdir(parents=True, exist_ok=True)
+                (self.output_folder / split / "labels").mkdir(parents=True, exist_ok=True)
+        else:
+            # Flat structure with images/ and labels/ subdirectories
+            (self.output_folder / "images").mkdir(parents=True, exist_ok=True)
+            (self.output_folder / "labels").mkdir(parents=True, exist_ok=True)
 
     def save_annotation(
         self,
@@ -76,19 +86,21 @@ class TestplanFormat(OutputFormat):
         task: str
     ) -> Path:
         """Save testplan format annotation (sidecar JSON)."""
-        # Determine output directory
+        # Determine output directories for images and labels
         if self.enable_split and split:
-            output_dir = self.output_folder / split
+            images_dir = self.output_folder / split / "images"
+            labels_dir = self.output_folder / split / "labels"
         else:
-            output_dir = self.output_folder
+            images_dir = self.output_folder / "images"
+            labels_dir = self.output_folder / "labels"
 
         # Save image
-        img_path = output_dir / data.image_filename
+        img_path = images_dir / data.image_filename
         data.image.save(img_path)
 
         # Create sidecar JSON (same name, .json extension)
         json_filename = Path(data.image_filename).stem + ".json"
-        json_path = output_dir / json_filename
+        json_path = labels_dir / json_filename
 
         # Build annotation
         annotation = self._build_annotation(data, task)

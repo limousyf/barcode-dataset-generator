@@ -18,6 +18,8 @@ class TestTestplanFormat:
         handler.setup_directories("detection", ["code128", "qr"], enable_split=False)
 
         assert tmp_path.exists()
+        assert (tmp_path / "images").exists()
+        assert (tmp_path / "labels").exists()
         assert not (tmp_path / "train").exists()
         assert not (tmp_path / "val").exists()
 
@@ -26,9 +28,9 @@ class TestTestplanFormat:
         handler = TestplanFormat(tmp_path)
         handler.setup_directories("detection", ["code128", "qr"], enable_split=True)
 
-        assert (tmp_path / "train").exists()
-        assert (tmp_path / "val").exists()
-        assert (tmp_path / "test").exists()
+        for split in ["train", "val", "test"]:
+            assert (tmp_path / split / "images").exists()
+            assert (tmp_path / split / "labels").exists()
 
     def test_save_annotation_creates_sidecar_json(self, tmp_path):
         """Test that save_annotation creates image and JSON sidecar."""
@@ -60,9 +62,9 @@ class TestTestplanFormat:
         # Save annotation
         json_path = handler.save_annotation(data, "", "detection")
 
-        # Verify files exist
-        assert (tmp_path / "code128_000001.png").exists()
-        assert (tmp_path / "code128_000001.json").exists()
+        # Verify files exist in separate folders
+        assert (tmp_path / "images" / "code128_000001.png").exists()
+        assert (tmp_path / "labels" / "code128_000001.json").exists()
 
         # Verify JSON content
         with open(json_path) as f:
