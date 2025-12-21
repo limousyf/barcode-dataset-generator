@@ -6,13 +6,14 @@ and annotation creation to produce datasets in various formats.
 """
 
 import argparse
+import json
 import logging
 import os
 import random
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 from tqdm import tqdm
@@ -30,6 +31,105 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def load_degradation_config(config_path: str) -> List[Dict[str, Any]]:
+    """Load degradation config from JSON file.
+
+    The file can contain either a single config or a list of configs.
+    """
+    with open(config_path) as f:
+        config = json.load(f)
+
+    # Normalize to list
+    if isinstance(config, list):
+        return config
+    return [config]
+
+
+def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: int) -> List[Dict[str, Any]]:
+    """Build degradation configs for parameter sweep.
+
+    The API expects degradation configs with categories as lists of transformation objects.
+    Each transformation must have a 'type' key matching the API schema.
+
+    Supported sweep types:
+    - blur/motion_blur: Motion blur intensity (0.5-10.0)
+    - rotation_y: Y-axis rotation angle in degrees (-180 to 180)
+    - rotation_x: X-axis rotation angle in degrees (-90 to 90)
+    - rotation_z: Z-axis rotation angle in degrees (-90 to 90)
+    - fading: Contrast reduction (0.1-0.9)
+    - scratches: Scratch severity (0.1-1.0)
+    - glare: Glare intensity (0.1-1.0)
+    - low_light: Darkness level (0.1-0.9)
+    - overexposure: Brightness level (0.1-0.9)
+    """
+    configs = []
+    step_size = (max_val - min_val) / max(steps - 1, 1) if steps > 1 else 0
+
+    for i in range(steps):
+        value = min_val + (i * step_size)
+
+        # Build config in API's expected format
+        # Categories must be LISTS of transformation objects with 'type' key
+        if sweep_type in ("blur", "motion_blur"):
+            config = {
+                "damage": [{"type": "motion_blur", "intensity": value, "direction": 0}]
+            }
+        elif sweep_type == "rotation_y":
+            config = {
+                "geometry": [{"type": "y_axis_rotation", "angle_degrees": value}]
+            }
+        elif sweep_type == "rotation_x":
+            config = {
+                "geometry": [{"type": "x_axis_rotation", "angle_degrees": value}]
+            }
+        elif sweep_type == "rotation_z":
+            config = {
+                "geometry": [{"type": "z_axis_rotation", "angle_degrees": value}]
+            }
+        elif sweep_type == "fading":
+            config = {
+                "damage": [{"type": "fading", "contrast_reduction": value, "pattern": "uniform"}]
+            }
+        elif sweep_type == "scratches":
+            config = {
+                "damage": [{"type": "scratches", "severity": value, "count": 3}]
+            }
+        elif sweep_type == "glare":
+            config = {
+                "damage": [{"type": "glare", "intensity": value}]
+            }
+        elif sweep_type == "low_light":
+            config = {
+                "damage": [{"type": "low_light", "darkness": value}]
+            }
+        elif sweep_type == "overexposure":
+            config = {
+                "damage": [{"type": "overexposure", "brightness": value}]
+            }
+        else:
+            raise ValueError(f"Unknown sweep type: {sweep_type}. "
+                           f"Supported: blur, motion_blur, rotation_y, rotation_x, rotation_z, "
+                           f"fading, scratches, glare, low_light, overexposure")
+
+        configs.append(config)
+
+    return configs
+
+
+def fetch_preset_config(client: "BarcodeAPIClient", preset_name: str) -> Dict[str, Any]:
+    """Fetch degradation preset from API."""
+    presets = client.get_degradation_presets()
+
+    if not presets or "presets" not in presets:
+        raise ValueError("Failed to fetch degradation presets from API")
+
+    if preset_name not in presets["presets"]:
+        available = ", ".join(presets["presets"].keys())
+        raise ValueError(f"Unknown preset: {preset_name}. Available: {available}")
+
+    return presets["presets"][preset_name]["degradation"]
 
 
 class DatasetGenerator:
@@ -78,6 +178,7 @@ class DatasetGenerator:
         label_mode: str = "symbology",
         enable_degradation: bool = False,
         degradation_prob: float = 0.5,
+        degradation_configs: Optional[List[Dict]] = None,
         split_ratio: str = "80/10/10",
         image_format: str = "png",
         barcodes_per_image: str = "1",
@@ -94,6 +195,8 @@ class DatasetGenerator:
             label_mode: Label mode (symbology, category, family, binary)
             enable_degradation: Whether to apply degradation effects
             degradation_prob: Probability of degradation per sample
+            degradation_configs: List of specific degradation configs to cycle through.
+                If provided, overrides random degradation.
             split_ratio: Train/val/test split ratio (e.g., "80/10/10")
             image_format: Output image format (png, jpg)
             barcodes_per_image: Number of barcodes per image (e.g., "1" or "1-3")
@@ -103,6 +206,9 @@ class DatasetGenerator:
         Returns:
             Statistics dictionary with generation results
         """
+        # Store degradation configs for use in sample generation
+        self._degradation_configs = degradation_configs
+        self._degradation_index = 0
         # Build class mapping based on label mode
         self._build_class_mapping(symbologies, label_mode)
 
@@ -320,12 +426,14 @@ class DatasetGenerator:
         Returns:
             Split name on success, None on failure
         """
-        # Determine if we should apply degradation
-        apply_degradation = enable_degradation and random.random() < degradation_prob
-
-        # Build degradation config if needed
+        # Build degradation config
         degradation = None
-        if apply_degradation:
+        if self._degradation_configs:
+            # Use specific degradation configs (cycle through list)
+            degradation = self._degradation_configs[self._degradation_index % len(self._degradation_configs)]
+            self._degradation_index += 1
+        elif enable_degradation and random.random() < degradation_prob:
+            # Random degradation
             degradation = self._random_degradation()
 
         # Generate barcode via API
@@ -387,31 +495,46 @@ class DatasetGenerator:
         return split
 
     def _random_degradation(self) -> Dict:
-        """Generate random degradation configuration."""
-        # Simple degradation config - can be expanded
-        degradation = {
-            "geometry": {},
-            "materials": {},
-        }
+        """Generate random degradation configuration.
 
-        # Random rotation
+        Returns a config in the API's expected format with categories as lists
+        of transformation objects, each with a 'type' key.
+        """
+        degradation = {}
+
+        # Build geometry transforms list
+        geometry_transforms = []
         if random.random() < 0.5:
-            degradation["geometry"]["rotation"] = {
-                "angle": random.uniform(-15, 15)
-            }
-
-        # Random perspective
+            geometry_transforms.append({
+                "type": "y_axis_rotation",
+                "angle_degrees": random.uniform(-15, 15)
+            })
         if random.random() < 0.3:
-            degradation["geometry"]["perspective"] = {
-                "x_tilt": random.uniform(-10, 10),
-                "y_tilt": random.uniform(-10, 10)
-            }
+            geometry_transforms.append({
+                "type": "combined_rotation",
+                "x_angle": random.uniform(-10, 10),
+                "y_angle": random.uniform(-10, 10),
+                "z_angle": 0
+            })
+        if geometry_transforms:
+            degradation["geometry"] = geometry_transforms
 
-        # Random noise
+        # Build damage transforms list
+        damage_transforms = []
         if random.random() < 0.4:
-            degradation["materials"]["noise"] = {
-                "intensity": random.uniform(0.1, 0.4)
-            }
+            damage_transforms.append({
+                "type": "motion_blur",
+                "intensity": random.uniform(0.5, 2.0),
+                "direction": random.uniform(0, 360)
+            })
+        if random.random() < 0.3:
+            damage_transforms.append({
+                "type": "fading",
+                "contrast_reduction": random.uniform(0.1, 0.3),
+                "pattern": "uniform"
+            })
+        if damage_transforms:
+            degradation["damage"] = damage_transforms
 
         return degradation
 
@@ -540,9 +663,15 @@ Examples:
                         default="detection", help="Task type")
     parser.add_argument("--label-mode", choices=["symbology", "category", "family", "binary"],
                         default="symbology", help="Label mode")
-    parser.add_argument("--degrade", action="store_true", help="Enable degradation effects")
+    parser.add_argument("--degrade", action="store_true", help="Enable random degradation effects")
     parser.add_argument("--degrade-prob", type=float, default=0.5,
                         help="Degradation probability (0.0-1.0)")
+    parser.add_argument("--degrade-preset",
+                        help="Use API degradation preset (e.g., cylindrical_surface, flexible_packaging)")
+    parser.add_argument("--degrade-config",
+                        help="Load degradation config from JSON file")
+    parser.add_argument("--degrade-sweep", nargs=4, metavar=("TYPE", "MIN", "MAX", "STEPS"),
+                        help="Sweep degradation parameter (e.g., blur 0.1 0.5 5)")
     parser.add_argument("--backgrounds", help="Background images folder")
     parser.add_argument("--barcodes-per-image", default="1",
                         help="Barcodes per image (e.g., '1' or '1-3')")
@@ -639,6 +768,33 @@ Examples:
     if args.backgrounds:
         generator.set_backgrounds(Path(args.backgrounds))
 
+    # Build degradation configs if specified
+    degradation_configs = None
+    if args.degrade_config:
+        # Load from JSON file
+        degradation_configs = load_degradation_config(args.degrade_config)
+        print(f"  Degradation: {len(degradation_configs)} config(s) from {args.degrade_config}")
+    elif args.degrade_preset:
+        # Fetch from API preset
+        try:
+            preset_config = fetch_preset_config(client, args.degrade_preset)
+            degradation_configs = [preset_config]
+            print(f"  Degradation: preset '{args.degrade_preset}'")
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.degrade_sweep:
+        # Build sweep configs
+        sweep_type, min_val, max_val, steps = args.degrade_sweep
+        try:
+            degradation_configs = build_sweep_configs(
+                sweep_type, float(min_val), float(max_val), int(steps)
+            )
+            print(f"  Degradation: sweep {sweep_type} from {min_val} to {max_val} in {steps} steps")
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
     # Generate dataset
     try:
         stats = generator.generate(
@@ -648,6 +804,7 @@ Examples:
             label_mode=args.label_mode,
             enable_degradation=args.degrade,
             degradation_prob=args.degrade_prob,
+            degradation_configs=degradation_configs,
             split_ratio=args.split,
             image_format=args.format,
             barcodes_per_image=args.barcodes_per_image,

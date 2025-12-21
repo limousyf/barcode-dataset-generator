@@ -139,14 +139,19 @@ python -m src.dataset_generator [OPTIONS]
 Options:
   --output PATH              Output directory for dataset (required)
   --samples N                Samples per symbology [default: 100]
+  --single                   Generate a single sample (quick test mode)
   --symbologies LIST         Specific symbologies (code128, qr, upca, etc.)
   --categories LIST          Categories (linear, 2d, stacked, postal, popular)
   --families LIST            Families (code128, ean_upc, qr, pdf417, etc.)
   --output-format FORMAT     Output format: yolo, testplan [default: yolo]
   --task TYPE                detection, segmentation, or classification
   --label-mode MODE          symbology, category, family, or binary
-  --degrade                  Enable degradation effects
+  --degrade                  Enable random degradation effects
   --degrade-prob FLOAT       Degradation probability [default: 0.5]
+  --degrade-preset NAME      Use API degradation preset
+  --degrade-config FILE      Load degradation config from JSON file
+  --degrade-sweep TYPE MIN MAX STEPS
+                             Sweep a degradation parameter (see below)
   --backgrounds PATH         Background images folder
   --barcodes-per-image RANGE Range like "1-3" for multi-barcode images
   --split RATIO              Train/val/test split [default: 80/10/10]
@@ -157,6 +162,87 @@ Options:
   --workers N                Parallel workers [default: 4]
   --verbose                  Enable verbose logging
   --help                     Show this message and exit
+```
+
+## Degradation Options
+
+The generator supports three ways to apply degradation effects:
+
+### Random Degradation
+
+Apply random degradation with configurable probability:
+
+```bash
+python -m src.dataset_generator -o ./dataset --symbologies code128 \
+    --degrade --degrade-prob 0.7
+```
+
+### Parameter Sweeps
+
+Generate systematic test sets with controlled degradation levels using `--degrade-sweep`:
+
+```bash
+# Syntax: --degrade-sweep TYPE MIN MAX STEPS
+
+# Y-axis rotation from -30° to +30° in 5 steps
+python -m src.dataset_generator -o ./rotation-test --symbologies code128 \
+    --samples 5 --output-format testplan --no-split \
+    --degrade-sweep rotation_y -30 30 5
+
+# Motion blur from light (0.5) to heavy (5.0) in 10 steps
+python -m src.dataset_generator -o ./blur-test --symbologies code128 \
+    --samples 10 --output-format testplan --no-split \
+    --degrade-sweep blur 0.5 5.0 10
+
+# Fading/contrast reduction sweep
+python -m src.dataset_generator -o ./fading-test --symbologies code128 \
+    --samples 5 --output-format testplan --no-split \
+    --degrade-sweep fading 0.1 0.5 5
+```
+
+**Available sweep types:**
+
+| Sweep Type | Description | Valid Range |
+|------------|-------------|-------------|
+| `rotation_y` | Y-axis rotation (horizontal tilt) | -180° to 180° |
+| `rotation_x` | X-axis rotation (vertical tilt) | -90° to 90° |
+| `rotation_z` | Z-axis rotation (in-plane) | -90° to 90° |
+| `blur` / `motion_blur` | Motion blur intensity | 0.5 to 10.0 |
+| `fading` | Contrast reduction | 0.1 to 0.9 |
+| `scratches` | Scratch severity | 0.1 to 1.0 |
+| `glare` | Glare/hotspot intensity | 0.1 to 1.0 |
+| `low_light` | Darkness level | 0.1 to 0.9 |
+| `overexposure` | Brightness/washout level | 0.1 to 0.9 |
+
+### Custom Configuration
+
+Load a custom degradation config from a JSON file:
+
+```bash
+python -m src.dataset_generator -o ./custom-test --symbologies code128 \
+    --samples 20 --degrade-config my-degradation.json
+```
+
+Example `my-degradation.json`:
+```json
+{
+  "geometry": [
+    {"type": "y_axis_rotation", "angle_degrees": 15}
+  ],
+  "damage": [
+    {"type": "motion_blur", "intensity": 2.0, "direction": 45},
+    {"type": "scratches", "count": 3, "severity": 0.4}
+  ]
+}
+```
+
+You can also provide a list of configs to cycle through:
+```json
+[
+  {"damage": [{"type": "fading", "contrast_reduction": 0.2}]},
+  {"damage": [{"type": "fading", "contrast_reduction": 0.4}]},
+  {"damage": [{"type": "fading", "contrast_reduction": 0.6}]}
+]
 ```
 
 ## Configuration
