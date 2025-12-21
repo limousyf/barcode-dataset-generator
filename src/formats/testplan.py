@@ -6,7 +6,7 @@ for testing barcode decoder accuracy and robustness.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -172,7 +172,7 @@ class TestplanFormat(OutputFormat):
         manifest: Dict[str, Any] = {
             "schema_version": self.SCHEMA_VERSION,
             "format": "testplan",
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "dataset": {
                 "total_images": stats.get("generated", 0),
                 "failed": stats.get("failed", 0),
