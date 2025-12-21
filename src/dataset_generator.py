@@ -537,8 +537,8 @@ Examples:
     parser.add_argument("--no-split", action="store_true",
                         help="Disable train/val/test splitting (flat directory)")
     parser.add_argument("--format", choices=["png", "jpg"], default="png", help="Image format")
-    parser.add_argument("--api-url", default="https://barcodes.dev",
-                        help="API server URL")
+    parser.add_argument("--api-url",
+                        help="API server URL (or set BARCODE_API_URL env var, default: https://barcodes.dev)")
     parser.add_argument("--api-key", help="API key (or set BARCODE_API_KEY env var)")
     parser.add_argument("--workers", type=int, default=4, help="Parallel workers")
     parser.add_argument("--config", help="Config file path")
@@ -558,9 +558,9 @@ Examples:
         config = Config.from_yaml(Path(args.config))
     config.merge_env()
 
-    # Get API key
+    # Get API configuration
     api_key = args.api_key or os.environ.get("BARCODE_API_KEY") or config.api.api_key
-    api_url = args.api_url or config.api.base_url
+    api_url = args.api_url or os.environ.get("BARCODE_API_URL") or config.api.base_url
 
     if not api_key:
         print("Error: API key required. Set --api-key or BARCODE_API_KEY environment variable.")
