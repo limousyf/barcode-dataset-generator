@@ -63,7 +63,10 @@ class BarcodeResult:
     @property
     def text_region_polygon(self) -> Optional[List[List[int]]]:
         """Get text label region polygon coordinates."""
-        text_region = self.regions.get("text_region", {})
+        # API returns 'text' with 'polygon' and 'present' fields
+        text_region = self.regions.get("text", {})
+        if not text_region.get("present", False):
+            return None
         return text_region.get("polygon")
 
     @property
