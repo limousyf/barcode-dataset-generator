@@ -2,7 +2,11 @@
 
 ## Project Overview
 
-This is a standalone client application for generating YOLO training datasets for barcode detection, segmentation, and classification. It connects to the **barcodes.dev API** to generate barcodes and apply degradation effects, then assembles them into properly formatted YOLO datasets.
+This is a standalone client application for generating training and testing datasets for barcode detection, segmentation, and classification. It connects to the **barcodes.dev API** to generate barcodes and apply degradation effects, then assembles them into properly formatted datasets.
+
+**Supported output formats:**
+- **YOLO** - For training object detection/segmentation models
+- **Testplan** - JSON sidecar format for decoder testing
 
 ### Relationship to barcodes.dev
 
@@ -17,10 +21,11 @@ The server provides:
 - Multiple barcode symbologies (80+ types)
 
 This client provides:
-- YOLO dataset structure creation
+- Multi-format dataset structure creation (YOLO, Testplan)
 - Batch processing and progress tracking
 - Background image embedding
 - Train/val/test splitting
+- Degradation parameter sweeps for systematic testing
 - Label file generation (detection, segmentation, classification)
 
 ## API Environments
@@ -44,11 +49,10 @@ export BARCODE_API_URL=https://barcodes.dev
 export BARCODE_API_KEY=your-api-key-here
 ```
 
-**Option 2: Config File (`config.yaml`)**
-```yaml
-api:
-  base_url: https://barcodes.dev
-  # api_key: your-api-key-here  # Better to use env var
+**Option 2: `.env.local` file (git-ignored)**
+```bash
+BARCODE_API_URL=http://localhost:5001
+BARCODE_API_KEY=your-api-key-here
 ```
 
 **Option 3: CLI Argument**
@@ -81,35 +85,45 @@ Authenticated endpoints require the `X-API-Key` header:
 X-API-Key: your-api-key-here
 ```
 
-### Request/Response Format
+### Degradation Config Format
 
-**Generate Barcode Request (POST /api/v2/barcode/generate):**
+The API expects degradation configs with categories as **lists** of transformation objects:
+
 ```json
 {
-  "type": "code128",
-  "text": "SAMPLE123",
-  "format": "PNG",
-  "include_metadata": true,
-  "degradation": {
-    "geometry": {
-      "rotation": {"angle": 15},
-      "perspective": {"x_tilt": 10}
-    },
-    "materials": {
-      "noise": {"intensity": 0.3}
-    }
-  }
+  "geometry": [
+    {"type": "y_axis_rotation", "angle_degrees": 15}
+  ],
+  "damage": [
+    {"type": "motion_blur", "intensity": 2.0, "direction": 45},
+    {"type": "scratches", "count": 3, "severity": 0.4}
+  ],
+  "materials": [
+    {"type": "transparent_overlay", "opacity": 0.8}
+  ]
 }
 ```
 
-**Response:**
+**Available transformation types:**
+
+| Category | Types |
+|----------|-------|
+| `geometry` | `y_axis_rotation`, `x_axis_rotation`, `z_axis_rotation`, `cylindrical`, `flexible_wrinkle` |
+| `damage` | `motion_blur`, `fading`, `scratches`, `ink_bleeding`, `broken_bars`, `low_ink`, `white_noise`, `glare`, `water_droplets`, `stains`, `smudges`, `partial_removal`, `low_light`, `overexposure` |
+| `materials` | `metallic_reflection`, `transparent_overlay` |
+
+### API Response Format
+
+**Generate Barcode Response:**
 ```json
 {
   "success": true,
   "image": "base64-encoded-png",
   "format": "PNG",
   "degradation_applied": true,
-  "transformations": ["rotation", "noise"],
+  "transformations": [
+    {"type": "y_axis_rotation", "category": "geometry", "success": true, "parameters": {...}}
+  ],
   "metadata": {
     "original_size": {"width": 400, "height": 150},
     "regions": {
@@ -117,39 +131,12 @@ X-API-Key: your-api-key-here
         "polygon": [[10, 5], [390, 5], [390, 120], [10, 120]],
         "bbox": [10, 5, 390, 120]
       },
-      "text_region": {
-        "polygon": [[10, 125], [390, 125], [390, 145], [10, 145]]
+      "text": {
+        "polygon": [[10, 125], [390, 125], [390, 145], [10, 145]],
+        "present": true
       }
     }
   }
-}
-```
-
-**Get Symbologies Response (GET /api/v2/barcode/symbologies):**
-```json
-{
-  "categories": {
-    "linear": ["code128", "code39", "ean13", ...],
-    "2d": ["qr", "datamatrix", "aztec", ...],
-    "stacked": ["pdf417", "micropdf417", ...],
-    "postal": ["usps_imd", "royal_mail", ...],
-    "composite": ["gs1_128_cc", ...],
-    "popular": ["code128", "qr", "ean13", ...]
-  },
-  "total_symbologies": 80
-}
-```
-
-**Get Families Response (GET /api/v2/barcode/families):**
-```json
-{
-  "families": {
-    "code128": ["code128", "gs1_128", "ean14", ...],
-    "ean_upc": ["ean13", "ean8", "upca", "upce", ...],
-    "qr": ["qr", "microqr", "rmqr", ...],
-    ...
-  },
-  "total_families": 20
 }
 ```
 
@@ -160,51 +147,54 @@ barcode-dataset-generator/
 ├── CLAUDE.md                    # This file
 ├── README.md                    # User documentation
 ├── requirements.txt             # Python dependencies
-├── setup.py                     # Package installation
 ├── config.yaml                  # Default configuration
+├── .env.local                   # Local environment (git-ignored)
 │
 ├── src/
 │   ├── __init__.py
 │   ├── api_client.py            # HTTP client for barcodes.dev API
-│   ├── dataset_generator.py     # Main dataset generation logic
+│   ├── dataset_generator.py     # Main dataset generation logic + CLI
 │   ├── background_manager.py    # Background image handling
-│   ├── label_generator.py       # YOLO annotation generation
+│   ├── label_generator.py       # YOLO annotation generation (legacy)
 │   ├── config.py                # Configuration management
-│   └── utils.py                 # Helper functions
+│   ├── utils.py                 # Helper functions
+│   │
+│   └── formats/                 # Output format handlers
+│       ├── __init__.py          # Format registry
+│       ├── base.py              # OutputFormat ABC + AnnotationData
+│       ├── yolo.py              # YOLO format handler
+│       └── testplan.py          # Testplan JSON format handler
 │
 ├── tests/
 │   ├── test_api_client.py
-│   ├── test_dataset_generator.py
-│   └── test_label_generator.py
-│
-├── examples/
-│   └── generate_code128_dataset.py
+│   ├── test_label_generator.py
+│   └── test_utils.py
 │
 └── docs/
-    └── api_reference.md
+    └── YOLO_DATASET_GUIDE.md
 ```
 
-## Key Components to Implement
+## Key Components
 
 ### 1. API Client (`src/api_client.py`)
 - HTTP client wrapper for barcodes.dev API
-- Handles authentication (if needed in future)
-- Retry logic and error handling
+- Handles API key authentication
+- Retry logic with exponential backoff
 - Base64 image decoding
-- Metadata extraction
+- BarcodeResult dataclass with region accessors
 
 ### 2. Dataset Generator (`src/dataset_generator.py`)
 - Orchestrates the generation pipeline
 - Manages symbology selection and sampling
 - Handles train/val/test splitting
-- Progress reporting
-- Parallel request handling (optional)
+- Supports degradation sweeps for systematic testing
+- Progress reporting with tqdm
+- Parallel request handling
 
-### 3. Label Generator (`src/label_generator.py`)
-- Converts metadata polygons to YOLO format
-- Supports detection (bbox) and segmentation (polygon)
-- Handles coordinate normalization
-- Classification folder structure
+### 3. Format Handlers (`src/formats/`)
+- **YOLOFormat**: YOLO detection/segmentation annotations
+- **TestplanFormat**: JSON sidecar files for decoder testing
+- Extensible base class for adding new formats
 
 ### 4. Background Manager (`src/background_manager.py`)
 - Loads background images from folder
@@ -212,151 +202,145 @@ barcode-dataset-generator/
 - Places barcodes with collision detection
 - Transforms metadata coordinates after placement
 
-## Configuration
+## CLI Arguments
 
-### Environment Variables
+```
+python -m src.dataset_generator [OPTIONS]
+
+Required:
+  --output, -o PATH        Output directory for dataset
+
+Samples:
+  --samples, -n N          Samples per symbology (default: 100)
+  --single, -1             Generate single sample (quick test mode)
+
+Symbology Selection:
+  --symbologies LIST       Specific symbologies (code128, qr, upca, etc.)
+  --categories LIST        Categories (linear, 2d, stacked, postal, popular)
+  --families LIST          Families (code128, ean_upc, qr, pdf417, etc.)
+
+Output Format:
+  --output-format, -f      Format: yolo, testplan (default: yolo)
+  --task TYPE              detection, segmentation, or classification
+  --label-mode MODE        symbology, category, family, or binary
+
+Degradation:
+  --degrade                Enable random degradation effects
+  --degrade-prob FLOAT     Degradation probability (default: 0.5)
+  --degrade-preset NAME    Use API degradation preset
+  --degrade-config FILE    Load degradation config from JSON file
+  --degrade-sweep TYPE MIN MAX STEPS
+                           Sweep a degradation parameter
+
+Background:
+  --backgrounds PATH       Background images folder
+  --barcodes-per-image     Range like "1-3" for multi-barcode images
+
+Splitting:
+  --split RATIO            Train/val/test split (default: 80/10/10)
+  --no-split               Disable splitting (flat directory)
+
+Other:
+  --format FORMAT          Image format: png or jpg (default: png)
+  --api-url URL            API server URL
+  --api-key KEY            API key
+  --workers N              Parallel workers (default: 4)
+  --verbose, -v            Enable verbose logging
+```
+
+## Degradation Sweep Types
+
+For systematic decoder testing with `--degrade-sweep TYPE MIN MAX STEPS`:
+
+| Category | Sweep Type | Description | Range |
+|----------|------------|-------------|-------|
+| Geometry | `rotation_y` | Y-axis rotation | -180° to 180° |
+| | `rotation_x` | X-axis rotation | -90° to 90° |
+| | `rotation_z` | Z-axis rotation | -90° to 90° |
+| | `cylindrical` | Cylindrical warp radius | 10 to 500 |
+| | `wrinkle` | Wrinkle depth | 0.05 to 0.5 |
+| Damage | `blur` | Motion blur intensity | 0.5 to 10.0 |
+| | `fading` | Contrast reduction | 0.1 to 0.9 |
+| | `scratches` | Scratch severity | 0.1 to 1.0 |
+| | `ink_bleeding` | Ink bleed intensity | 0.1 to 1.0 |
+| | `broken_bars` | Bar break intensity | 0.5 to 1.0 |
+| | `low_ink` | Low ink effect | 0.3 to 1.0 |
+| | `white_noise` | Noise intensity | 0.4 to 1.0 |
+| | `glare` | Glare intensity | 0.1 to 1.0 |
+| | `water_droplets` | Water effect | 0.1 to 1.0 |
+| | `stains` | Stain intensity | 0.1 to 1.0 |
+| | `smudges` | Smudge intensity | 0.1 to 1.0 |
+| | `partial_removal` | Label removal | 0.1 to 0.6 |
+| | `low_light` | Darkness level | 0.1 to 0.9 |
+| | `overexposure` | Brightness level | 0.1 to 0.9 |
+| Materials | `metallic` | Reflection specularity | 0.1 to 1.0 |
+| | `transparent` | Overlay opacity | 0.1 to 0.9 |
+
+## Example Usage
+
 ```bash
-BARCODE_API_URL=http://localhost:5001    # API server URL
-BARCODE_API_TIMEOUT=30                    # Request timeout in seconds
+# Quick single-sample test
+python -m src.dataset_generator -o ./test -1 --symbologies code128
+
+# Generate YOLO detection dataset
+python -m src.dataset_generator -o ./yolo-dataset \
+    --samples 100 --symbologies code128 qr \
+    --task detection --degrade
+
+# Generate testplan for decoder testing (flat structure)
+python -m src.dataset_generator -o ./decoder-tests \
+    --samples 50 --symbologies code128 \
+    --output-format testplan --no-split
+
+# Rotation sweep for systematic testing
+python -m src.dataset_generator -o ./rotation-test \
+    --samples 10 --symbologies code128 \
+    --output-format testplan --no-split \
+    --degrade-sweep rotation_y -30 30 10
+
+# Blur sweep
+python -m src.dataset_generator -o ./blur-test \
+    --samples 10 --symbologies code128 \
+    --output-format testplan --no-split \
+    --degrade-sweep blur 0.5 5.0 10
 ```
 
-### Config File (`config.yaml`)
-```yaml
-api:
-  base_url: http://localhost:5001
-  timeout: 30
-  retry_attempts: 3
+## Output Formats
 
-generation:
-  default_samples_per_class: 100
-  default_image_format: png
-  default_split: "80/10/10"
-
-degradation:
-  default_probability: 0.5
-  presets:
-    - light
-    - moderate
-    - heavy
-
-backgrounds:
-  default_folder: ~/backgrounds
-  target_size: [640, 640]
+### YOLO Format
+```
+dataset/
+├── train/images/
+├── train/labels/
+├── val/images/
+├── val/labels/
+├── test/images/
+├── test/labels/
+├── data.yaml
+├── classes.txt
+└── class_mapping.json
 ```
 
-## Supported Features
-
-### Task Types
-1. **detection**: Bounding box annotations (YOLO format)
-2. **segmentation**: Polygon annotations (YOLO segmentation format)
-3. **classification**: Folder-based structure (ImageNet style)
-
-### Label Modes
-1. **symbology**: Fine-grained (code128, qr, upca, etc.)
-2. **category**: Coarse (linear, 2d, stacked, postal)
-3. **family**: Mid-level (code128_family, ean_upc_family, etc.)
-4. **binary**: Single "barcode" class
-
-### Barcode Categories
-- **linear**: Code 128, Code 39, UPC, EAN, ITF, etc. (40+ types)
-- **2d**: QR, DataMatrix, Aztec, MaxiCode, etc. (10+ types)
-- **stacked**: PDF417, MicroPDF417, Codablock F, etc.
-- **postal**: USPS, Royal Mail, Australia Post, etc.
-- **composite**: GS1 composite symbologies
-- **popular**: Top 11 most common symbologies
-
-## Development Setup
-
-### Prerequisites
-- Python 3.9+
-- Running instance of barcodes.dev API (local or remote)
-
-### Installation
-```bash
-cd /Users/francis/Documents/barcode-dataset-generator
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+### Testplan Format
 ```
-
-### Running Tests
-```bash
-pytest tests/ -v
-```
-
-### Example Usage
-```bash
-# Generate small test dataset
-python -m src.dataset_generator \
-    --output ~/datasets/test-dataset \
-    --samples 10 \
-    --symbologies code128 qr \
-    --task segmentation \
-    --api-url http://localhost:5001
-
-# Generate production dataset
-python -m src.dataset_generator \
-    --output ~/datasets/barcode-detection \
-    --samples 1000 \
-    --categories linear 2d \
-    --task detection \
-    --degrade \
-    --degrade-prob 0.6 \
-    --backgrounds ~/backgrounds \
-    --split 80/10/10
-```
-
-## CLI Arguments (Target Interface)
-
-```
---output PATH          Output directory for dataset
---samples N            Samples per symbology (default: 100)
---symbologies LIST     Specific symbologies to include
---categories LIST      Barcode categories (linear, 2d, etc.)
---families LIST        Barcode families (code128, ean_upc, etc.)
---task TYPE            detection, segmentation, or classification
---label-mode MODE      symbology, category, family, or binary
---degrade              Enable degradation effects
---degrade-prob FLOAT   Probability of degradation (0.0-1.0)
---backgrounds PATH     Folder with background images
---barcodes-per-image   Range like "1-3" for background embedding
---split RATIO          Train/val/test split like "80/10/10"
---format FORMAT        png or jpg
---api-url URL          API server URL (default: http://localhost:5001)
---workers N            Parallel workers for API requests
---config PATH          Path to config.yaml
+dataset/
+├── images/
+│   └── code128_000001.png
+├── labels/
+│   └── code128_000001.json    # JSON sidecar
+└── manifest.json              # Dataset summary
 ```
 
 ## Error Handling
 
 ### API Connection Errors
-- Retry with exponential backoff
-- Fall back to cached responses if available
+- Retry with exponential backoff (configurable attempts)
 - Clear error messages with troubleshooting hints
 
 ### Generation Failures
 - Log failed symbologies
 - Continue with remaining samples
 - Report success/failure statistics
-
-## Performance Considerations
-
-### Parallel Processing
-- Use `concurrent.futures` for parallel API requests
-- Configurable worker count (default: 4)
-- Rate limiting to avoid overwhelming API
-
-### Caching
-- Cache degradation presets
-- Optional caching of generated barcodes for reproducibility
-
-## Future Enhancements
-
-1. **Web UI**: Simple Flask/Streamlit interface for configuration
-2. **Resume Support**: Continue interrupted generation runs
-3. **Cloud Storage**: Direct upload to S3/GCS
-4. **Distributed Generation**: Multiple workers across machines
-5. **Dataset Validation**: Verify generated datasets before training
 
 ## Troubleshooting
 
@@ -368,20 +352,14 @@ Solution: Start the barcodes.dev server:
   PORT=5001 python3 run.py
 ```
 
-### Missing Symbology
+### API Key Required
 ```
-Error: Unknown symbology 'xyz'
-Solution: Check supported symbologies:
-  curl http://localhost:5001/api/v1/barcode/symbologies
-```
-
-### Large Dataset Memory Issues
-```
-Solution: Reduce --workers or process in batches with --batch-size
+Error: API key required
+Solution: Set BARCODE_API_KEY environment variable or use --api-key
 ```
 
 ---
 
-**Last Updated:** 2025-12-18
-**Version:** 0.1.0 (Initial Setup)
-**API Compatibility:** barcodes.dev v1.7.0+
+**Last Updated:** 2025-12-21
+**Version:** 0.2.0
+**API Compatibility:** barcodes.dev v2.0+
