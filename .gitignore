@@ -62,3 +62,6 @@ Thumbs.db
 
 # Config with secrets
 config.local.yaml
+
+# Claude Code context
+CLAUDE.md
