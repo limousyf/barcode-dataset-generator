@@ -191,6 +191,7 @@ class DatasetGenerator:
         self.config = config or Config()
         self.output_format_name = output_format
         self.background_manager = None
+        self.barcode_scale_range: Tuple[float, float] = (0.3, 0.6)  # Default 30-60% of bg width
 
         # Initialize format handler
         format_class = get_format(output_format)
@@ -204,6 +205,15 @@ class DatasetGenerator:
         """Configure background image embedding."""
         if backgrounds_folder:
             self.background_manager = BackgroundManager(backgrounds_folder)
+
+    def set_barcode_scale_range(self, scale_range: Tuple[float, float]) -> None:
+        """Set the scale range for barcode size when embedding on backgrounds.
+
+        Args:
+            scale_range: Tuple of (min_scale, max_scale) as fraction of background width.
+                        e.g., (0.1, 0.3) means 10%-30% of background width.
+        """
+        self.barcode_scale_range = scale_range
 
     def generate(
         self,
@@ -580,39 +590,67 @@ class DatasetGenerator:
     ) -> Tuple[Image.Image, BarcodeResult]:
         """Embed barcode(s) on background image.
 
+        Scales the barcode to a random size within barcode_scale_range,
+        then places it on a random background without additional rotation.
+
         Returns:
-            Tuple of (background image, adjusted BarcodeResult with offset coordinates)
+            Tuple of (background image, adjusted BarcodeResult with scaled and offset coordinates)
         """
         target_size = self.config.backgrounds.target_size
         background = self.background_manager.get_random_background(target_size)
+        bg_width, bg_height = background.size
 
         existing_bboxes = []
 
         # For now, just place the first barcode
         # TODO: Support multiple barcodes per image
         barcode_img = result.image
+
+        # Scale barcode to random size within range (as fraction of background width)
+        scale = random.uniform(*self.barcode_scale_range)
+        new_barcode_width = int(bg_width * scale)
+        aspect_ratio = barcode_img.height / barcode_img.width
+        new_barcode_height = int(new_barcode_width * aspect_ratio)
+
+        # Calculate actual scale factor for coordinate transformation
+        actual_scale = new_barcode_width / barcode_img.width
+
+        # Resize barcode image
+        barcode_resized = barcode_img.resize(
+            (new_barcode_width, new_barcode_height),
+            Image.Resampling.LANCZOS
+        )
+
+        # Find placement position for scaled barcode
         position = self.background_manager.place_barcode(
-            background, barcode_img, existing_bboxes
+            background, barcode_resized, existing_bboxes
         )
 
         if position:
             x, y = position
-            background.paste(barcode_img, (x, y))
+            background.paste(barcode_resized, (x, y))
 
-            # Create adjusted metadata with offset coordinates
+            # Create adjusted metadata with scaled and offset coordinates
             adjusted_metadata = dict(result.metadata)
             adjusted_regions = {}
 
-            # Offset barcode_only region
+            # Helper function to scale and offset a polygon
+            def scale_and_offset_polygon(polygon):
+                return [
+                    [int(p[0] * actual_scale) + x, int(p[1] * actual_scale) + y]
+                    for p in polygon
+                ]
+
+            # Scale and offset barcode_only region
             if result.barcode_polygon:
-                adjusted_polygon = [[p[0] + x, p[1] + y] for p in result.barcode_polygon]
+                adjusted_polygon = scale_and_offset_polygon(result.barcode_polygon)
                 # Calculate bbox from polygon if not provided by API
                 if result.barcode_bbox:
                     adjusted_bbox = [
-                        result.barcode_bbox[0] + x,
-                        result.barcode_bbox[1] + y,
-                        result.barcode_bbox[2] + x,
-                        result.barcode_bbox[3] + y,
+                        int(result.barcode_bbox[0] * actual_scale) + x,
+                        int(result.barcode_bbox[1] * actual_scale) + y,
+                        int(result.barcode_bbox[2] * actual_scale) + x,
+                        int(result.barcode_bbox[3] * actual_scale) + y,
                     ]
                 else:
                     # Derive bbox from polygon
@@ -625,20 +663,26 @@ class DatasetGenerator:
                     "bbox": adjusted_bbox
                 }
 
-            # Offset text region (use "text" key to match API response format)
+            # Scale and offset text region (use "text" key to match API response format)
             if result.text_region_polygon:
                 adjusted_regions["text"] = {
-                    "polygon": [[p[0] + x, p[1] + y] for p in result.text_region_polygon],
+                    "polygon": scale_and_offset_polygon(result.text_region_polygon),
                     "present": True
                 }
 
-            # Offset full_region
+            # Scale and offset full_region
             if result.full_region_polygon:
                 adjusted_regions["full"] = {
-                    "polygon": [[p[0] + x, p[1] + y] for p in result.full_region_polygon]
+                    "polygon": scale_and_offset_polygon(result.full_region_polygon)
                 }
 
             adjusted_metadata["regions"] = adjusted_regions
+
+            # Update image size in metadata to reflect background size
+            adjusted_metadata["image_size"] = {
+                "width": bg_width,
+                "height": bg_height
+            }
 
             # Create new BarcodeResult with adjusted metadata
             adjusted_result = BarcodeResult(
@@ -708,6 +752,8 @@ Examples:
     parser.add_argument("--degrade-sweep", nargs=4, metavar=("TYPE", "MIN", "MAX", "STEPS"),
                         help="Sweep degradation parameter (e.g., blur 0.1 0.5 5)")
     parser.add_argument("--backgrounds", help="Background images folder")
+    parser.add_argument("--barcode-scale", default="0.3-0.6",
+                        help="Scale range for barcode size as fraction of background width (e.g., '0.1-0.3')")
     parser.add_argument("--barcodes-per-image", default="1",
                         help="Barcodes per image (e.g., '1' or '1-3')")
     parser.add_argument("--split", default="80/10/10", help="Train/val/test split ratio")
@@ -802,6 +848,21 @@ Examples:
     # Set backgrounds if provided
     if args.backgrounds:
         generator.set_backgrounds(Path(args.backgrounds))
+
+        # Parse barcode-scale range
+        try:
+            parts = args.barcode_scale.split('-')
+            if len(parts) != 2:
+                print("Error: --barcode-scale must be in format 'min-max' (e.g., '0.1-0.3')")
+                sys.exit(1)
+            min_scale, max_scale = float(parts[0]), float(parts[1])
+            if min_scale <= 0 or max_scale > 1.0 or min_scale > max_scale:
+                print("Error: Invalid barcode-scale range. Must be 0.0-1.0 with min <= max")
+                sys.exit(1)
+            generator.set_barcode_scale_range((min_scale, max_scale))
+        except ValueError:
+            print("Error: --barcode-scale values must be numbers (e.g., '0.1-0.3')")
+            sys.exit(1)
 
     # Build degradation configs if specified
     degradation_configs = None
