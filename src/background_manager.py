@@ -30,17 +30,18 @@ class BackgroundManager:
             self._load_background_list()
 
     def _load_background_list(self) -> None:
-        """Scan folder and load list of background images."""
+        """Scan folder recursively and load list of background images."""
         if not self.backgrounds_folder or not self.backgrounds_folder.exists():
             return
 
+        # Search recursively for all image files
         self.background_files = [
-            f for f in self.backgrounds_folder.iterdir()
+            f for f in self.backgrounds_folder.rglob('*')
             if f.is_file() and f.suffix.lower() in self.SUPPORTED_EXTENSIONS
         ]
 
         if not self.background_files:
-            raise ValueError(f"No background images found in {self.backgrounds_folder}")
+            raise ValueError(f"No background images found in {self.backgrounds_folder} (searched recursively)")
 
     def get_random_background(
         self,
