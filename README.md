@@ -5,7 +5,7 @@ A standalone tool for generating training and testing datasets for barcode detec
 ## Features
 
 - Generate datasets for **80+ barcode symbologies**
-- **Multiple output formats**: YOLO, Testplan (decoder testing)
+- **Multiple output formats**: YOLO, Testplan, Paired (image restoration)
 - Support for **detection**, **segmentation**, and **classification** tasks
 - Realistic **image degradation** (rotation, noise, perspective, blur)
 - **Background embedding** for realistic training scenarios
@@ -131,6 +131,42 @@ Example JSON:
 }
 ```
 
+### Paired Format
+
+Matched degraded/sharp image pairs for training image restoration models (deblurring, denoising).
+
+```
+paired-dataset/
+├── input/              # Degraded images (model input)
+│   ├── train/
+│   │   └── code128_000001.png
+│   └── val/
+├── target/             # Sharp images (ground truth)
+│   ├── train/
+│   │   └── code128_000001.png
+│   └── val/
+├── metadata/           # JSON files with degradation details
+│   ├── train/
+│   │   └── code128_000001.json
+│   └── val/
+└── manifest.json       # Dataset summary
+```
+
+**Note:** Paired format requires degradation to be enabled (`--degrade`, `--degrade-sweep`, etc.).
+
+```bash
+# Generate paired deblurring dataset
+python -m src.dataset_generator \
+    --output ./paired-deblur \
+    --samples 500 \
+    --symbologies code128 \
+    --output-format paired \
+    --degrade-sweep blur 0.5 10.0 20 \
+    --split 80/10/10
+```
+
+For detailed information, see [docs/PAIRED_FORMAT_GUIDE.md](docs/PAIRED_FORMAT_GUIDE.md).
+
 ## Usage
 
 ```
@@ -143,7 +179,7 @@ Options:
   --symbologies LIST         Specific symbologies (code128, qr, upca, etc.)
   --categories LIST          Categories (linear, 2d, stacked, postal, popular)
   --families LIST            Families (code128, ean_upc, qr, pdf417, etc.)
-  --output-format FORMAT     Output format: yolo, testplan [default: yolo]
+  --output-format FORMAT     Output format: yolo, testplan, paired [default: yolo]
   --task TYPE                detection, segmentation, or classification
   --label-mode MODE          symbology, category, family, or binary
   --degrade                  Enable random degradation effects
