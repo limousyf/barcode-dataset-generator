@@ -883,12 +883,27 @@ Examples:
         # Build sweep configs
         sweep_type, min_val, max_val, steps = args.degrade_sweep
         try:
+            min_float = float(min_val)
+        except ValueError:
+            print(f"Error: --degrade-sweep MIN value '{min_val}' is not a valid number")
+            sys.exit(1)
+        try:
+            max_float = float(max_val)
+        except ValueError:
+            print(f"Error: --degrade-sweep MAX value '{max_val}' is not a valid number")
+            sys.exit(1)
+        try:
+            steps_int = int(steps)
+        except ValueError:
+            print(f"Error: --degrade-sweep STEPS value '{steps}' is not a valid integer")
+            sys.exit(1)
+        try:
             degradation_configs = build_sweep_configs(
-                sweep_type, float(min_val), float(max_val), int(steps)
+                sweep_type, min_float, max_float, steps_int
             )
             print(f"  Degradation: sweep {sweep_type} from {min_val} to {max_val} in {steps} steps")
         except ValueError as e:
-            print(f"Error: {e}")
+            print(f"Error: --degrade-sweep: {e}")
             sys.exit(1)
 
     # Generate dataset
