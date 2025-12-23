@@ -48,6 +48,9 @@ class AnnotationData:
     degradation_applied: bool = False
     transformations: List[str] = field(default_factory=list)
 
+    # Paired format: sharp version of the image for restoration training
+    target_image: Optional[Image.Image] = None
+
 
 class OutputFormat(ABC):
     """Abstract base class for output format handlers.

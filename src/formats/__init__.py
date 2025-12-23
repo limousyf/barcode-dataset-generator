@@ -20,12 +20,14 @@ from typing import Dict, Type
 from .base import OutputFormat, AnnotationData
 from .yolo import YOLOFormat
 from .testplan import TestplanFormat
+from .paired import PairedFormat
 
 
 # Format registry: name -> format class
 FORMATS: Dict[str, Type[OutputFormat]] = {
     "yolo": YOLOFormat,
     "testplan": TestplanFormat,
+    "paired": PairedFormat,
 }
 
 
@@ -73,6 +75,7 @@ __all__ = [
     "AnnotationData",
     "YOLOFormat",
     "TestplanFormat",
+    "PairedFormat",
     "FORMATS",
     "get_format",
     "register_format",

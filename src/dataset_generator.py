@@ -484,6 +484,19 @@ class DatasetGenerator:
         # Generate barcode via API
         sample_data = generate_sample_data(symbology)
 
+        # For paired format, generate both sharp and degraded versions
+        if self.output_format_name == "paired":
+            return self._generate_paired_sample(
+                symbology=symbology,
+                sample_data=sample_data,
+                sample_idx=sample_idx,
+                split=split,
+                degradation=degradation,
+                image_format=image_format,
+                min_barcodes=min_barcodes,
+                max_barcodes=max_barcodes,
+            )
+
         try:
             result = self.api_client.generate_barcode(
                 barcode_type=symbology,
@@ -536,6 +549,98 @@ class DatasetGenerator:
 
         # Save using format handler
         self.format_handler.save_annotation(annotation_data, split, task)
+
+        return split
+
+    def _generate_paired_sample(
+        self,
+        symbology: str,
+        sample_data: str,
+        sample_idx: int,
+        split: str,
+        degradation: Optional[Dict],
+        image_format: str,
+        min_barcodes: int,
+        max_barcodes: int,
+    ) -> Optional[str]:
+        """Generate paired sharp/degraded sample for restoration training.
+
+        Makes two API calls with the same barcode content:
+        1. Sharp version (no degradation)
+        2. Degraded version (with degradation applied)
+
+        Returns:
+            Split name on success, None on failure
+        """
+        # Generate sharp version first (no degradation)
+        try:
+            sharp_result = self.api_client.generate_barcode(
+                barcode_type=symbology,
+                text=sample_data,
+                degradation=None,
+                image_format=image_format.upper()
+            )
+        except APIError as e:
+            logger.warning(f"Failed to generate sharp {symbology}: {e}")
+            return None
+
+        if not sharp_result:
+            return None
+
+        # Generate degraded version with same content
+        try:
+            degraded_result = self.api_client.generate_barcode(
+                barcode_type=symbology,
+                text=sample_data,
+                degradation=degradation,
+                image_format=image_format.upper()
+            )
+        except APIError as e:
+            logger.warning(f"Failed to generate degraded {symbology}: {e}")
+            return None
+
+        if not degraded_result:
+            return None
+
+        # Generate filename
+        filename = f"{symbology}_{sample_idx:06d}.{image_format}"
+
+        # Handle background embedding if configured
+        if self.background_manager:
+            num_barcodes = random.randint(min_barcodes, max_barcodes)
+            # Embed both on the same background position for consistency
+            final_degraded, adjusted_degraded = self._embed_on_background(
+                degraded_result, num_barcodes
+            )
+            final_sharp, adjusted_sharp = self._embed_on_background(
+                sharp_result, num_barcodes
+            )
+        else:
+            final_degraded = degraded_result.image
+            adjusted_degraded = degraded_result
+            final_sharp = sharp_result.image
+            adjusted_sharp = sharp_result
+
+        # Build AnnotationData with both images
+        annotation_data = AnnotationData(
+            image=final_degraded,  # Input (degraded)
+            target_image=final_sharp,  # Target (sharp)
+            image_filename=filename,
+            image_size=final_degraded.size,
+            symbology=symbology,
+            encoded_value=adjusted_degraded.input_text,
+            printed_text=adjusted_degraded.input_text,
+            barcode_only_polygon=adjusted_degraded.barcode_polygon,
+            barcode_only_bbox=adjusted_degraded.barcode_bbox,
+            text_region_polygon=adjusted_degraded.text_region_polygon,
+            full_region_polygon=adjusted_degraded.full_region_polygon,
+            orientation="top-left",
+            degradation_applied=adjusted_degraded.degradation_applied,
+            transformations=adjusted_degraded.transformations,
+        )
+
+        # Save using format handler
+        self.format_handler.save_annotation(annotation_data, split, "paired")
 
         return split
 
@@ -727,6 +832,11 @@ Examples:
   # Generate testplan with train/val/test splits
   python -m src.dataset_generator -o ./decoder-tests -n 100 \\
       --symbologies code128 qr --output-format testplan --split 80/10/10
+
+  # Generate paired dataset for image restoration training
+  python -m src.dataset_generator -o ./deblur-train -n 1000 \\
+      --symbologies code128 --output-format paired \\
+      --degrade-sweep blur 1.0 5.0 10
 """
     )
     parser.add_argument("--output", "-o", required=True, help="Output directory")
@@ -736,7 +846,7 @@ Examples:
     parser.add_argument("--symbologies", nargs="+", help="Symbologies to include")
     parser.add_argument("--categories", nargs="+", help="Categories to include (linear, 2d, etc.)")
     parser.add_argument("--families", nargs="+", help="Families to include (code128, ean_upc, etc.)")
-    parser.add_argument("--output-format", "-f", choices=["yolo", "testplan"],
+    parser.add_argument("--output-format", "-f", choices=["yolo", "testplan", "paired"],
                         default="yolo", help="Output annotation format")
     parser.add_argument("--task", choices=["detection", "segmentation", "classification"],
                         default="detection", help="Task type")
@@ -815,6 +925,15 @@ Examples:
     if not symbologies:
         print("Error: No symbologies specified. Use --symbologies, --categories, or --families")
         sys.exit(1)
+
+    # Validate paired format requires degradation
+    if args.output_format == "paired":
+        has_degradation = (args.degrade or args.degrade_sweep or
+                          args.degrade_config or args.degrade_preset)
+        if not has_degradation:
+            print("Error: --output-format paired requires degradation to be enabled")
+            print("Use --degrade, --degrade-sweep, --degrade-config, or --degrade-preset")
+            sys.exit(1)
 
     # Handle --single mode
     if args.single:
