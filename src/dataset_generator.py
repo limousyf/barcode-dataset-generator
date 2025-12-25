@@ -105,7 +105,7 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
 
         # === DAMAGE transforms ===
         elif sweep_type in ("blur", "motion_blur"):
-            config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": 0}]}
+            config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": random.uniform(0, 360)}]}
         elif sweep_type == "fading":
             config = {"damage": [{"type": "fading", "contrast_reduction": value, "pattern": "uniform"}]}
         elif sweep_type == "scratches":
