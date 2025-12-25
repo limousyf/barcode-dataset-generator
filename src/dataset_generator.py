@@ -64,6 +64,8 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
 
     DAMAGE:
     - blur/motion_blur: Motion blur intensity (0.5-10.0)
+    - gaussian_blur: Gaussian blur sigma (0.5-10.0)
+    - defocus_blur: Defocus/bokeh blur radius (2.0-20.0)
     - fading: Contrast reduction (0.1-0.9)
     - scratches: Scratch severity (0.1-1.0)
     - ink_bleeding: Ink bleed intensity (0.1-1.0)
@@ -106,6 +108,10 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
         # === DAMAGE transforms ===
         elif sweep_type in ("blur", "motion_blur"):
             config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": random.uniform(0, 360)}]}
+        elif sweep_type == "gaussian_blur":
+            config = {"damage": [{"type": "gaussian_blur", "sigma": value, "uniform": True}]}
+        elif sweep_type == "defocus_blur":
+            config = {"damage": [{"type": "defocus_blur", "radius": value, "shape": "disc"}]}
         elif sweep_type == "fading":
             config = {"damage": [{"type": "fading", "contrast_reduction": value, "pattern": "uniform"}]}
         elif sweep_type == "scratches":
@@ -142,9 +148,9 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
         else:
             supported = (
                 "rotation_y, rotation_x, rotation_z, cylindrical, wrinkle, "
-                "blur, motion_blur, fading, scratches, ink_bleeding, broken_bars, low_ink, "
-                "white_noise, glare, water_droplets, stains, smudges, partial_removal, "
-                "low_light, overexposure, metallic, transparent"
+                "blur, motion_blur, gaussian_blur, defocus_blur, fading, scratches, "
+                "ink_bleeding, broken_bars, low_ink, white_noise, glare, water_droplets, "
+                "stains, smudges, partial_removal, low_light, overexposure, metallic, transparent"
             )
             raise ValueError(f"Unknown sweep type: {sweep_type}. Supported: {supported}")
 
