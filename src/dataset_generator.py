@@ -866,7 +866,8 @@ Examples:
     parser.add_argument("--degrade-config",
                         help="Load degradation config from JSON file")
     parser.add_argument("--degrade-sweep", nargs=4, metavar=("TYPE", "MIN", "MAX", "STEPS"),
-                        help="Sweep degradation parameter (e.g., blur 0.1 0.5 5)")
+                        action="append", dest="degrade_sweeps",
+                        help="Sweep degradation parameter (can be specified multiple times)")
     parser.add_argument("--backgrounds", help="Background images folder")
     parser.add_argument("--barcode-scale", default="0.3-0.6",
                         help="Scale range for barcode size as fraction of background width (e.g., '0.1-0.3')")
@@ -934,7 +935,7 @@ Examples:
 
     # Validate paired format requires degradation
     if args.output_format == "paired":
-        has_degradation = (args.degrade or args.degrade_sweep or
+        has_degradation = (args.degrade or args.degrade_sweeps or
                           args.degrade_config or args.degrade_preset)
         if not has_degradation:
             print("Error: --output-format paired requires degradation to be enabled")
@@ -1004,32 +1005,36 @@ Examples:
         except ValueError as e:
             print(f"Error: {e}")
             sys.exit(1)
-    elif args.degrade_sweep:
-        # Build sweep configs
-        sweep_type, min_val, max_val, steps = args.degrade_sweep
-        try:
-            min_float = float(min_val)
-        except ValueError:
-            print(f"Error: --degrade-sweep MIN value '{min_val}' is not a valid number")
-            sys.exit(1)
-        try:
-            max_float = float(max_val)
-        except ValueError:
-            print(f"Error: --degrade-sweep MAX value '{max_val}' is not a valid number")
-            sys.exit(1)
-        try:
-            steps_int = int(steps)
-        except ValueError:
-            print(f"Error: --degrade-sweep STEPS value '{steps}' is not a valid integer")
-            sys.exit(1)
-        try:
-            degradation_configs = build_sweep_configs(
-                sweep_type, min_float, max_float, steps_int
-            )
-            print(f"  Degradation: sweep {sweep_type} from {min_val} to {max_val} in {steps} steps")
-        except ValueError as e:
-            print(f"Error: --degrade-sweep: {e}")
-            sys.exit(1)
+    elif args.degrade_sweeps:
+        # Build sweep configs from one or more sweeps
+        degradation_configs = []
+        for sweep_spec in args.degrade_sweeps:
+            sweep_type, min_val, max_val, steps = sweep_spec
+            try:
+                min_float = float(min_val)
+            except ValueError:
+                print(f"Error: --degrade-sweep MIN value '{min_val}' is not a valid number")
+                sys.exit(1)
+            try:
+                max_float = float(max_val)
+            except ValueError:
+                print(f"Error: --degrade-sweep MAX value '{max_val}' is not a valid number")
+                sys.exit(1)
+            try:
+                steps_int = int(steps)
+            except ValueError:
+                print(f"Error: --degrade-sweep STEPS value '{steps}' is not a valid integer")
+                sys.exit(1)
+            try:
+                sweep_configs = build_sweep_configs(
+                    sweep_type, min_float, max_float, steps_int
+                )
+                degradation_configs.extend(sweep_configs)
+                print(f"  Degradation: sweep {sweep_type} from {min_val} to {max_val} in {steps} steps")
+            except ValueError as e:
+                print(f"Error: --degrade-sweep: {e}")
+                sys.exit(1)
+        print(f"  Total degradation configs: {len(degradation_configs)}")
 
     # Generate dataset
     try:
