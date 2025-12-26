@@ -110,7 +110,8 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
 
         # === DAMAGE transforms ===
         elif sweep_type in ("blur", "motion_blur"):
-            config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": random.uniform(0, 360)}]}
+            # Use "random" placeholder - will be replaced with actual random value per sample
+            config = {"damage": [{"type": "motion_blur", "intensity": value, "direction": "random"}]}
         elif sweep_type == "gaussian_blur":
             config = {"damage": [{"type": "gaussian_blur", "sigma": value, "uniform": True}]}
         elif sweep_type == "defocus_blur":
@@ -511,8 +512,8 @@ class DatasetGenerator:
             self._degradation_index += 1
             # Extract prefix for filename (if present)
             degradation_prefix = config.get("_prefix")
-            # Copy config without _prefix for API call
-            degradation = {k: v for k, v in config.items() if k != "_prefix"}
+            # Deep copy config without _prefix, replacing "random" placeholders
+            degradation = self._resolve_random_values(config)
         elif enable_degradation and random.random() < degradation_prob:
             # Random degradation
             degradation = self._random_degradation()
@@ -731,6 +732,42 @@ class DatasetGenerator:
             degradation["damage"] = damage_transforms
 
         return degradation
+
+    def _resolve_random_values(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Deep copy config, replacing 'random' placeholders with actual random values.
+
+        This allows sweep configs to use "random" as a placeholder for values that
+        should vary per-sample (e.g., blur direction).
+        """
+        import copy
+        result = {}
+        for key, value in config.items():
+            if key == "_prefix":
+                continue  # Skip prefix, not sent to API
+            elif isinstance(value, list):
+                # Handle list of transforms (e.g., damage: [{type: motion_blur, ...}])
+                new_list = []
+                for item in value:
+                    if isinstance(item, dict):
+                        new_item = {}
+                        for k, v in item.items():
+                            if v == "random":
+                                # Replace with random value based on parameter name
+                                if k == "direction":
+                                    new_item[k] = random.uniform(0, 360)
+                                else:
+                                    new_item[k] = v  # Unknown random param, keep as-is
+                            else:
+                                new_item[k] = v
+                        new_list.append(new_item)
+                    else:
+                        new_list.append(item)
+                result[key] = new_list
+            elif isinstance(value, dict):
+                result[key] = self._resolve_random_values(value)
+            else:
+                result[key] = value
+        return result
 
     def _embed_on_background(
         self,
