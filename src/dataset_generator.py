@@ -53,6 +53,9 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
     The API expects degradation configs with categories as lists of transformation objects.
     Each transformation must have a 'type' key matching the API schema.
 
+    Each returned config includes a '_prefix' key with a filename prefix like 'blur_2.5'
+    to identify the degradation type and value applied.
+
     Supported sweep types:
 
     GEOMETRY:
@@ -154,6 +157,14 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
             )
             raise ValueError(f"Unknown sweep type: {sweep_type}. Supported: {supported}")
 
+        # Add prefix for filename identification (e.g., "blur_2_5")
+        # Format value: use integer if whole number, otherwise 1 decimal place with underscore
+        if value == int(value):
+            value_str = str(int(value))
+        else:
+            value_str = f"{value:.1f}".replace(".", "_")
+        config["_prefix"] = f"{sweep_type}_{value_str}"
+
         configs.append(config)
 
     return configs
@@ -206,6 +217,17 @@ class DatasetGenerator:
         # Class mapping for labels
         self.class_to_id: Dict[str, int] = {}
         self.id_to_class: Dict[int, str] = {}
+
+        # Generation config for manifest
+        self.generation_config: Dict[str, Any] = {}
+
+    def set_generation_config(self, config: Dict[str, Any]) -> None:
+        """Store generation parameters for manifest.
+
+        Args:
+            config: Dictionary of generation parameters (CLI args, sweep configs, etc.)
+        """
+        self.generation_config = config
 
     def set_backgrounds(self, backgrounds_folder: Optional[Path]) -> None:
         """Configure background image embedding."""
@@ -379,6 +401,9 @@ class DatasetGenerator:
                         stats["by_symbology"][symbology]["failed"] += 1
                     pbar.update(1)
 
+        # Add generation config to stats for manifest
+        stats["generation_config"] = self.generation_config
+
         # Finalize dataset (write manifest/config files)
         self.format_handler.finalize(task, stats)
 
@@ -479,10 +504,15 @@ class DatasetGenerator:
         """
         # Build degradation config
         degradation = None
+        degradation_prefix = None
         if self._degradation_configs:
             # Use specific degradation configs (cycle through list)
-            degradation = self._degradation_configs[self._degradation_index % len(self._degradation_configs)]
+            config = self._degradation_configs[self._degradation_index % len(self._degradation_configs)]
             self._degradation_index += 1
+            # Extract prefix for filename (if present)
+            degradation_prefix = config.get("_prefix")
+            # Copy config without _prefix for API call
+            degradation = {k: v for k, v in config.items() if k != "_prefix"}
         elif enable_degradation and random.random() < degradation_prob:
             # Random degradation
             degradation = self._random_degradation()
@@ -498,6 +528,7 @@ class DatasetGenerator:
                 sample_idx=sample_idx,
                 split=split,
                 degradation=degradation,
+                degradation_prefix=degradation_prefix,
                 image_format=image_format,
                 min_barcodes=min_barcodes,
                 max_barcodes=max_barcodes,
@@ -521,8 +552,11 @@ class DatasetGenerator:
         class_id = self._get_class_id(symbology, label_mode)
         class_name = self.id_to_class.get(class_id, symbology)
 
-        # Generate filename
-        filename = f"{symbology}_{sample_idx:06d}.{image_format}"
+        # Generate filename (with degradation prefix if available)
+        if degradation_prefix:
+            filename = f"{degradation_prefix}_{symbology}_{sample_idx:06d}.{image_format}"
+        else:
+            filename = f"{symbology}_{sample_idx:06d}.{image_format}"
 
         # Handle background embedding if configured
         if self.background_manager and task != "classification":
@@ -565,6 +599,7 @@ class DatasetGenerator:
         sample_idx: int,
         split: str,
         degradation: Optional[Dict],
+        degradation_prefix: Optional[str],
         image_format: str,
         min_barcodes: int,
         max_barcodes: int,
@@ -608,8 +643,11 @@ class DatasetGenerator:
         if not degraded_result:
             return None
 
-        # Generate filename
-        filename = f"{symbology}_{sample_idx:06d}.{image_format}"
+        # Generate filename (with degradation prefix if available)
+        if degradation_prefix:
+            filename = f"{degradation_prefix}_{symbology}_{sample_idx:06d}.{image_format}"
+        else:
+            filename = f"{symbology}_{sample_idx:06d}.{image_format}"
 
         # Handle background embedding if configured
         if self.background_manager:
@@ -1035,6 +1073,47 @@ Examples:
                 print(f"Error: --degrade-sweep: {e}")
                 sys.exit(1)
         print(f"  Total degradation configs: {len(degradation_configs)}")
+
+    # Build generation config for manifest
+    generation_config = {
+        "command": "dataset_generator",
+        "parameters": {
+            "samples_per_class": samples_per_class,
+            "symbologies": symbologies,
+            "output_format": args.output_format,
+            "task": args.task,
+            "label_mode": args.label_mode,
+            "image_format": args.format,
+            "split": args.split if enable_split else None,
+            "barcodes_per_image": args.barcodes_per_image,
+        },
+        "degradation": {},
+    }
+
+    # Add degradation settings
+    if args.degrade:
+        generation_config["degradation"]["random"] = {
+            "enabled": True,
+            "probability": args.degrade_prob,
+        }
+    if args.degrade_preset:
+        generation_config["degradation"]["preset"] = args.degrade_preset
+    if args.degrade_config:
+        generation_config["degradation"]["config_file"] = args.degrade_config
+    if args.degrade_sweeps:
+        generation_config["degradation"]["sweeps"] = [
+            {"type": s[0], "min": float(s[1]), "max": float(s[2]), "steps": int(s[3])}
+            for s in args.degrade_sweeps
+        ]
+
+    # Add background settings if used
+    if args.backgrounds:
+        generation_config["backgrounds"] = {
+            "folder": args.backgrounds,
+            "barcode_scale": args.barcode_scale,
+        }
+
+    generator.set_generation_config(generation_config)
 
     # Generate dataset
     try:

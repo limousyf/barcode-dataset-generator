@@ -191,8 +191,13 @@ class TestplanFormat(OutputFormat):
                 "splits_enabled": self.enable_split,
             },
             "symbologies": list(stats.get("by_symbology", {}).keys()),
-            "files": self.generated_files,
         }
+
+        # Include generation parameters if provided
+        if stats.get("generation_config"):
+            manifest["generation"] = stats["generation_config"]
+
+        manifest["files"] = self.generated_files
 
         # Add split counts if enabled
         if self.enable_split:
