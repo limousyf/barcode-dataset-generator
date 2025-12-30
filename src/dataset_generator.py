@@ -47,6 +47,105 @@ def load_degradation_config(config_path: str) -> List[Dict[str, Any]]:
     return [config]
 
 
+def parse_range_spec(range_spec: str) -> List[Tuple[float, float]]:
+    """Parse a range specification into a list of (min, max) tuples.
+
+    Supports multiple comma-separated ranges for skipping values (e.g., low angles).
+
+    Formats:
+    - Single range: "10:70" or "-70:-10"
+    - Multiple ranges: "-70:-10,10:70" (skip values between -10 and 10)
+    - Legacy format: Single number as min_val (requires separate max_val)
+
+    Returns:
+        List of (min, max) tuples representing the ranges to sweep.
+
+    Raises:
+        ValueError: If the range specification is invalid.
+    """
+    ranges = []
+
+    # Split by comma for multiple ranges
+    parts = range_spec.split(",")
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # Check for colon separator (new format)
+        if ":" in part:
+            range_parts = part.split(":")
+            if len(range_parts) != 2:
+                raise ValueError(f"Invalid range format '{part}'. Expected 'MIN:MAX'.")
+            try:
+                min_val = float(range_parts[0])
+                max_val = float(range_parts[1])
+            except ValueError:
+                raise ValueError(f"Invalid numbers in range '{part}'.")
+            ranges.append((min_val, max_val))
+        else:
+            # Single number - this is the legacy format, return as-is for backward compat
+            try:
+                val = float(part)
+                # Can't create a range from a single value
+                raise ValueError(f"Single value '{part}' is not a valid range. Use 'MIN:MAX' format.")
+            except ValueError as e:
+                if "not a valid range" in str(e):
+                    raise
+                raise ValueError(f"Invalid range specification '{part}'.")
+
+    if not ranges:
+        raise ValueError(f"No valid ranges found in '{range_spec}'.")
+
+    return ranges
+
+
+def build_sweep_configs_multi_range(sweep_type: str, ranges: List[Tuple[float, float]], steps: int) -> List[Dict[str, Any]]:
+    """Build degradation configs for parameter sweep across multiple ranges.
+
+    Distributes steps proportionally across ranges based on their span.
+
+    Args:
+        sweep_type: The type of sweep (e.g., 'rotation_x', 'blur')
+        ranges: List of (min, max) tuples defining the ranges
+        steps: Total number of steps to distribute across all ranges
+
+    Returns:
+        List of degradation config dicts with '_prefix' keys.
+    """
+    if not ranges:
+        raise ValueError("At least one range is required.")
+
+    # Calculate total span across all ranges
+    total_span = sum(abs(max_val - min_val) for min_val, max_val in ranges)
+
+    if total_span == 0:
+        # All ranges are zero-width, just use first value
+        return build_sweep_configs(sweep_type, ranges[0][0], ranges[0][0], 1)
+
+    all_configs = []
+    remaining_steps = steps
+
+    for i, (min_val, max_val) in enumerate(ranges):
+        span = abs(max_val - min_val)
+
+        # Calculate steps for this range proportionally
+        if i == len(ranges) - 1:
+            # Last range gets all remaining steps
+            range_steps = remaining_steps
+        else:
+            # Proportional allocation
+            range_steps = max(1, round(steps * span / total_span))
+            remaining_steps -= range_steps
+
+        # Build configs for this range
+        configs = build_sweep_configs(sweep_type, min_val, max_val, range_steps)
+        all_configs.extend(configs)
+
+    return all_configs
+
+
 def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: int) -> List[Dict[str, Any]]:
     """Build degradation configs for parameter sweep.
 
@@ -129,7 +228,8 @@ def build_sweep_configs(sweep_type: str, min_val: float, max_val: float, steps: 
         elif sweep_type == "white_noise":
             config = {"damage": [{"type": "white_noise", "intensity": value}]}
         elif sweep_type == "glare":
-            config = {"damage": [{"type": "glare", "intensity": value}]}
+            # Use "random" placeholder - will be replaced with actual random direction per sample
+            config = {"damage": [{"type": "glare", "intensity": value, "light_direction": "random"}]}
         elif sweep_type == "water_droplets":
             config = {"damage": [{"type": "water_droplets", "intensity": value}]}
         elif sweep_type == "stains":
@@ -410,6 +510,294 @@ class DatasetGenerator:
 
         logger.info(f"Dataset generation complete: {stats['generated']}/{stats['total_requested']} samples")
         return stats
+
+    def generate_multi(
+        self,
+        generation_specs: List[Dict],
+        symbologies: List[str],
+        task: str = "detection",
+        label_mode: str = "symbology",
+        split_ratio: str = "80/10/10",
+        image_format: str = "png",
+        barcodes_per_image: str = "1",
+        workers: int = 4,
+        enable_split: bool = True
+    ) -> Dict:
+        """
+        Generate dataset from multiple generation specifications.
+
+        Each spec can have different degradation configs and sample counts.
+        All samples are combined and split together for proper distribution.
+
+        Args:
+            generation_specs: List of dicts with keys:
+                - 'configs': List of degradation configs to cycle through
+                - 'samples': Number of samples for this spec
+                - 'name': Name for logging (e.g., 'motion_blur 3:8')
+            symbologies: List of symbology types to generate
+            task: Task type (detection, segmentation, classification)
+            label_mode: Label mode (symbology, category, family, binary)
+            split_ratio: Train/val/test split ratio (e.g., "80/10/10")
+            image_format: Output image format (png, jpg)
+            barcodes_per_image: Number of barcodes per image (e.g., "1" or "1-3")
+            workers: Number of parallel workers
+            enable_split: Whether to create train/val/test splits
+
+        Returns:
+            Statistics dictionary with generation results
+        """
+        # Build class mapping based on label mode
+        self._build_class_mapping(symbologies, label_mode)
+
+        # Setup format handler with class mapping
+        self.format_handler.set_class_mapping(self.class_to_id)
+        self.format_handler.setup_directories(
+            task=task,
+            class_names=list(self.id_to_class.values()),
+            enable_split=enable_split
+        )
+
+        # Parse split ratio
+        train_ratio, val_ratio, test_ratio = parse_split_ratio(split_ratio)
+
+        # Parse barcodes per image
+        min_barcodes, max_barcodes = parse_barcodes_per_image(barcodes_per_image)
+
+        # Build combined list of samples across all specs
+        # Each sample is (symbology, sample_num, spec_idx)
+        all_samples = []
+        total_samples = 0
+
+        for spec_idx, spec in enumerate(generation_specs):
+            spec_samples = spec['samples']
+            # Distribute samples across symbologies
+            samples_per_sym = spec_samples // len(symbologies)
+            remainder = spec_samples % len(symbologies)
+
+            for sym_idx, symbology in enumerate(symbologies):
+                sym_samples = samples_per_sym + (1 if sym_idx < remainder else 0)
+                for i in range(sym_samples):
+                    all_samples.append((symbology, total_samples + i, spec_idx))
+
+            total_samples += spec_samples
+
+        # Shuffle for random split assignment
+        random.shuffle(all_samples)
+
+        # Statistics tracking
+        stats = {
+            "total_requested": total_samples,
+            "generated": 0,
+            "failed": 0,
+            "train": 0,
+            "val": 0,
+            "test": 0,
+            "by_symbology": {},
+            "by_spec": {}
+        }
+
+        for symbology in symbologies:
+            stats["by_symbology"][symbology] = {"generated": 0, "failed": 0}
+
+        for spec_idx, spec in enumerate(generation_specs):
+            stats["by_spec"][spec.get('name', f'spec_{spec_idx}')] = {"generated": 0, "failed": 0}
+
+        logger.info(f"Generating {total_samples} samples from {len(generation_specs)} generation specs...")
+
+        # Process with progress bar
+        with tqdm(total=len(all_samples), desc="Generating dataset") as pbar:
+            if workers > 1:
+                # Parallel generation
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {}
+                    for idx, (symbology, sample_num, spec_idx) in enumerate(all_samples):
+                        spec = generation_specs[spec_idx]
+
+                        # Set degradation configs for this sample
+                        self._degradation_configs = spec.get('configs')
+                        self._degradation_index = sample_num % len(spec['configs']) if spec.get('configs') else 0
+
+                        # Determine split
+                        split = self._get_split(idx, len(all_samples), train_ratio, val_ratio)
+
+                        future = executor.submit(
+                            self._generate_and_save_sample_with_config,
+                            symbology=symbology,
+                            sample_idx=idx,
+                            split=split,
+                            task=task,
+                            label_mode=label_mode,
+                            degradation_configs=spec.get('configs'),
+                            degradation_index=sample_num,
+                            image_format=image_format,
+                            min_barcodes=min_barcodes,
+                            max_barcodes=max_barcodes,
+                        )
+                        futures[future] = (symbology, sample_num, spec_idx)
+
+                    for future in as_completed(futures):
+                        symbology, sample_num, spec_idx = futures[future]
+                        spec_name = generation_specs[spec_idx].get('name', f'spec_{spec_idx}')
+                        try:
+                            success = future.result()
+                            if success:
+                                stats["generated"] += 1
+                                stats["by_symbology"][symbology]["generated"] += 1
+                                stats["by_spec"][spec_name]["generated"] += 1
+                                stats[success] += 1  # success is the split name
+                            else:
+                                stats["failed"] += 1
+                                stats["by_symbology"][symbology]["failed"] += 1
+                                stats["by_spec"][spec_name]["failed"] += 1
+                        except Exception as e:
+                            logger.error(f"Error generating {symbology}: {e}")
+                            stats["failed"] += 1
+                            stats["by_symbology"][symbology]["failed"] += 1
+                            stats["by_spec"][spec_name]["failed"] += 1
+                        pbar.update(1)
+            else:
+                # Sequential generation
+                for idx, (symbology, sample_num, spec_idx) in enumerate(all_samples):
+                    spec = generation_specs[spec_idx]
+                    spec_name = spec.get('name', f'spec_{spec_idx}')
+                    split = self._get_split(idx, len(all_samples), train_ratio, val_ratio)
+                    try:
+                        success = self._generate_and_save_sample_with_config(
+                            symbology=symbology,
+                            sample_idx=idx,
+                            split=split,
+                            task=task,
+                            label_mode=label_mode,
+                            degradation_configs=spec.get('configs'),
+                            degradation_index=sample_num,
+                            image_format=image_format,
+                            min_barcodes=min_barcodes,
+                            max_barcodes=max_barcodes,
+                        )
+                        if success:
+                            stats["generated"] += 1
+                            stats["by_symbology"][symbology]["generated"] += 1
+                            stats["by_spec"][spec_name]["generated"] += 1
+                            stats[success] += 1
+                        else:
+                            stats["failed"] += 1
+                            stats["by_symbology"][symbology]["failed"] += 1
+                            stats["by_spec"][spec_name]["failed"] += 1
+                    except Exception as e:
+                        logger.error(f"Error generating {symbology}: {e}")
+                        stats["failed"] += 1
+                        stats["by_symbology"][symbology]["failed"] += 1
+                        stats["by_spec"][spec_name]["failed"] += 1
+                    pbar.update(1)
+
+        # Add generation config to stats for manifest
+        stats["generation_config"] = self.generation_config
+
+        # Finalize dataset (write manifest/config files)
+        self.format_handler.finalize(task, stats)
+
+        logger.info(f"Dataset generation complete: {stats['generated']}/{stats['total_requested']} samples")
+        return stats
+
+    def _generate_and_save_sample_with_config(
+        self,
+        symbology: str,
+        sample_idx: int,
+        split: str,
+        task: str,
+        label_mode: str,
+        degradation_configs: Optional[List[Dict]],
+        degradation_index: int,
+        image_format: str,
+        min_barcodes: int,
+        max_barcodes: int
+    ) -> Optional[str]:
+        """Generate and save a sample with explicit degradation config.
+
+        Similar to _generate_and_save_sample but takes degradation config directly.
+        """
+        degradation = None
+        degradation_prefix = None
+
+        if degradation_configs:
+            config = degradation_configs[degradation_index % len(degradation_configs)]
+            degradation_prefix = config.get("_prefix")
+            degradation = self._resolve_random_values(config)
+
+        # Generate sample data for barcode
+        sample_data = generate_sample_data(symbology)
+
+        # For paired format, generate both sharp and degraded versions
+        if self.output_format_name == "paired":
+            return self._generate_paired_sample(
+                symbology=symbology,
+                sample_data=sample_data,
+                sample_idx=sample_idx,
+                split=split,
+                degradation=degradation,
+                degradation_prefix=degradation_prefix,
+                image_format=image_format,
+                min_barcodes=min_barcodes,
+                max_barcodes=max_barcodes,
+            )
+
+        # Standard (non-paired) generation
+        try:
+            result = self.api_client.generate_barcode(
+                barcode_type=symbology,
+                text=sample_data,
+                degradation=degradation,
+                image_format=image_format.upper()
+            )
+        except APIError as e:
+            logger.warning(f"Failed to generate {symbology}: {e}")
+            return None
+
+        if not result:
+            return None
+
+        # Get class ID and name
+        class_id = self._get_class_id(symbology, label_mode)
+        class_name = self.id_to_class.get(class_id, symbology)
+
+        # Generate filename (with degradation prefix if available)
+        if degradation_prefix:
+            filename = f"{degradation_prefix}_{symbology}_{sample_idx:06d}.{image_format}"
+        else:
+            filename = f"{symbology}_{sample_idx:06d}.{image_format}"
+
+        # Handle background embedding if configured
+        if self.background_manager and task != "classification":
+            num_barcodes = random.randint(min_barcodes, max_barcodes)
+            final_image, adjusted_result = self._embed_on_background(
+                result, num_barcodes
+            )
+        else:
+            final_image = result.image
+            adjusted_result = result
+
+        # Build AnnotationData for format handler
+        annotation_data = AnnotationData(
+            image=final_image,
+            image_filename=filename,
+            image_size=final_image.size,
+            symbology=symbology,
+            class_id=class_id,
+            class_name=class_name,
+            split=split,
+            barcode_data=sample_data,
+            barcode_polygon=adjusted_result.barcode_polygon,
+            barcode_bbox=adjusted_result.barcode_bbox,
+            text_polygon=adjusted_result.text_polygon,
+            text_bbox=adjusted_result.text_bbox,
+            degradation=degradation,
+            transformations=adjusted_result.raw_response.get("transformations", []),
+        )
+
+        # Save using format handler
+        self.format_handler.save_sample(annotation_data, task)
+
+        return split
 
     def _build_class_mapping(self, symbologies: List[str], label_mode: str) -> None:
         """Build class ID mapping based on label mode."""
@@ -755,6 +1143,10 @@ class DatasetGenerator:
                                 # Replace with random value based on parameter name
                                 if k == "direction":
                                     new_item[k] = random.uniform(0, 360)
+                                elif k == "light_direction":
+                                    directions = ["center", "left", "right", "top", "bottom",
+                                                   "top-left", "top-right", "bottom-left", "bottom-right"]
+                                    new_item[k] = random.choice(directions)
                                 else:
                                     new_item[k] = v  # Unknown random param, keep as-is
                             else:
@@ -940,9 +1332,19 @@ Examples:
                         help="Use API degradation preset (e.g., cylindrical_surface, flexible_packaging)")
     parser.add_argument("--degrade-config",
                         help="Load degradation config from JSON file")
-    parser.add_argument("--degrade-sweep", nargs=4, metavar=("TYPE", "MIN", "MAX", "STEPS"),
+    parser.add_argument("--degrade-sweep", nargs=3, metavar=("TYPE", "RANGE", "STEPS"),
                         action="append", dest="degrade_sweeps",
-                        help="Sweep degradation parameter (can be specified multiple times)")
+                        help="Sweep degradation parameter. RANGE can be 'MIN:MAX' or 'MIN:MAX,MIN:MAX' for multiple ranges. "
+                             "Example: rotation_x '-70:-10,10:70' 20")
+    parser.add_argument("--generation", nargs=4, metavar=("TYPE", "RANGE", "STEPS", "SAMPLES"),
+                        action="append", dest="generations",
+                        help="Generate samples with sweep: TYPE RANGE STEPS SAMPLES. "
+                             "Can be repeated to combine different degradations. "
+                             "Example: --generation motion_blur '3:8' 20 6000")
+    parser.add_argument("--generation-config", nargs=2, metavar=("CONFIG_FILE", "SAMPLES"),
+                        action="append", dest="generation_configs",
+                        help="Generate samples from JSON config file: CONFIG_FILE SAMPLES. "
+                             "Example: --generation-config configs/blur_lowlight.json 1000")
     parser.add_argument("--backgrounds", help="Background images folder")
     parser.add_argument("--barcode-scale", default="0.3-0.6",
                         help="Scale range for barcode size as fraction of background width (e.g., '0.1-0.3')")
@@ -1011,10 +1413,11 @@ Examples:
     # Validate paired format requires degradation
     if args.output_format == "paired":
         has_degradation = (args.degrade or args.degrade_sweeps or
-                          args.degrade_config or args.degrade_preset)
+                          args.degrade_config or args.degrade_preset or
+                          args.generations or args.generation_configs)
         if not has_degradation:
             print("Error: --output-format paired requires degradation to be enabled")
-            print("Use --degrade, --degrade-sweep, --degrade-config, or --degrade-preset")
+            print("Use --degrade, --degrade-sweep, --degrade-config, --degrade-preset, --generation, or --generation-config")
             sys.exit(1)
 
     # Handle --single mode
@@ -1067,6 +1470,7 @@ Examples:
 
     # Build degradation configs if specified
     degradation_configs = None
+    parsed_sweeps = []  # For manifest generation (populated by --degrade-sweep)
     if args.degrade_config:
         # Load from JSON file
         degradation_configs = load_degradation_config(args.degrade_config)
@@ -1082,33 +1486,33 @@ Examples:
             sys.exit(1)
     elif args.degrade_sweeps:
         # Build sweep configs from one or more sweeps
+        # Format: TYPE RANGE STEPS where RANGE is "MIN:MAX" or "MIN:MAX,MIN:MAX,..."
         degradation_configs = []
+
         for sweep_spec in args.degrade_sweeps:
-            sweep_type, min_val, max_val, steps = sweep_spec
-            try:
-                min_float = float(min_val)
-            except ValueError:
-                print(f"Error: --degrade-sweep MIN value '{min_val}' is not a valid number")
-                sys.exit(1)
-            try:
-                max_float = float(max_val)
-            except ValueError:
-                print(f"Error: --degrade-sweep MAX value '{max_val}' is not a valid number")
-                sys.exit(1)
+            sweep_type, range_spec, steps = sweep_spec
             try:
                 steps_int = int(steps)
             except ValueError:
                 print(f"Error: --degrade-sweep STEPS value '{steps}' is not a valid integer")
                 sys.exit(1)
             try:
-                sweep_configs = build_sweep_configs(
-                    sweep_type, min_float, max_float, steps_int
+                ranges = parse_range_spec(range_spec)
+                sweep_configs = build_sweep_configs_multi_range(
+                    sweep_type, ranges, steps_int
                 )
                 degradation_configs.extend(sweep_configs)
-                print(f"  Degradation: sweep {sweep_type} from {min_val} to {max_val} in {steps} steps")
+                ranges_str = ", ".join(f"{r[0]} to {r[1]}" for r in ranges)
+                print(f"  Degradation: sweep {sweep_type} over [{ranges_str}] in {steps} steps")
+                parsed_sweeps.append({
+                    "type": sweep_type,
+                    "ranges": range_spec,
+                    "steps": steps_int
+                })
             except ValueError as e:
                 print(f"Error: --degrade-sweep: {e}")
                 sys.exit(1)
+
         print(f"  Total degradation configs: {len(degradation_configs)}")
 
     # Build generation config for manifest
@@ -1137,11 +1541,8 @@ Examples:
         generation_config["degradation"]["preset"] = args.degrade_preset
     if args.degrade_config:
         generation_config["degradation"]["config_file"] = args.degrade_config
-    if args.degrade_sweeps:
-        generation_config["degradation"]["sweeps"] = [
-            {"type": s[0], "min": float(s[1]), "max": float(s[2]), "steps": int(s[3])}
-            for s in args.degrade_sweeps
-        ]
+    if args.degrade_sweeps and parsed_sweeps:
+        generation_config["degradation"]["sweeps"] = parsed_sweeps
 
     # Add background settings if used
     if args.backgrounds:
@@ -1152,7 +1553,106 @@ Examples:
 
     generator.set_generation_config(generation_config)
 
-    # Generate dataset
+    # Check if using multi-generation mode (--generation or --generation-config)
+    if args.generations or args.generation_configs:
+        # Build generation specs from --generation and --generation-config arguments
+        generation_specs = []
+
+        # Process --generation arguments: TYPE RANGE STEPS SAMPLES
+        if args.generations:
+            for gen_spec in args.generations:
+                sweep_type, range_spec, steps, samples = gen_spec
+                try:
+                    steps_int = int(steps)
+                    samples_int = int(samples)
+                except ValueError:
+                    print(f"Error: --generation STEPS and SAMPLES must be integers")
+                    sys.exit(1)
+                try:
+                    ranges = parse_range_spec(range_spec)
+                    configs = build_sweep_configs_multi_range(sweep_type, ranges, steps_int)
+                    ranges_str = ", ".join(f"{r[0]} to {r[1]}" for r in ranges)
+                    print(f"  Generation: {sweep_type} over [{ranges_str}] in {steps} steps, {samples} samples")
+                    generation_specs.append({
+                        'name': f"{sweep_type} {range_spec}",
+                        'configs': configs,
+                        'samples': samples_int
+                    })
+                except ValueError as e:
+                    print(f"Error: --generation: {e}")
+                    sys.exit(1)
+
+        # Process --generation-config arguments: CONFIG_FILE SAMPLES
+        if args.generation_configs:
+            for config_spec in args.generation_configs:
+                config_file, samples = config_spec
+                try:
+                    samples_int = int(samples)
+                except ValueError:
+                    print(f"Error: --generation-config SAMPLES must be an integer")
+                    sys.exit(1)
+                try:
+                    configs = load_degradation_config(config_file)
+                    # Add _prefix to configs if not present (use config filename)
+                    config_name = Path(config_file).stem
+                    for i, cfg in enumerate(configs):
+                        if "_prefix" not in cfg:
+                            cfg["_prefix"] = f"{config_name}_{i}"
+                    print(f"  Generation: {len(configs)} config(s) from {config_file}, {samples} samples")
+                    generation_specs.append({
+                        'name': config_name,
+                        'configs': configs,
+                        'samples': samples_int
+                    })
+                except Exception as e:
+                    print(f"Error loading {config_file}: {e}")
+                    sys.exit(1)
+
+        total_samples = sum(spec['samples'] for spec in generation_specs)
+        print(f"  Total samples: {total_samples}")
+        print()
+
+        # Update generation_config for manifest
+        generation_config["parameters"]["total_samples"] = total_samples
+        generation_config["multi_generation"] = [
+            {"name": spec['name'], "samples": spec['samples']} for spec in generation_specs
+        ]
+        generator.set_generation_config(generation_config)
+
+        # Generate using multi-generation method
+        try:
+            stats = generator.generate_multi(
+                generation_specs=generation_specs,
+                symbologies=symbologies,
+                task=args.task,
+                label_mode=args.label_mode,
+                split_ratio=args.split,
+                image_format=args.format,
+                barcodes_per_image=args.barcodes_per_image,
+                workers=args.workers,
+                enable_split=enable_split
+            )
+
+            print("\nGeneration complete!")
+            print(f"  Total generated: {stats['generated']}/{stats['total_requested']}")
+            print(f"  Failed: {stats['failed']}")
+            if enable_split:
+                print(f"  Train: {stats['train']}, Val: {stats['val']}, Test: {stats['test']}")
+            print("\n  By generation spec:")
+            for spec_name, spec_stats in stats.get('by_spec', {}).items():
+                print(f"    {spec_name}: {spec_stats['generated']} generated, {spec_stats['failed']} failed")
+            print(f"\nDataset saved to: {args.output}")
+
+        except KeyboardInterrupt:
+            print("\nGeneration interrupted by user")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\nError during generation: {e}")
+            sys.exit(1)
+
+        sys.exit(0)
+
+    # Generate dataset (standard mode)
     try:
         stats = generator.generate(
             symbologies=symbologies,

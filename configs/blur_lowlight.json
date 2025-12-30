@@ -1,0 +1,9 @@
+[
+  {"damage": [{"type": "motion_blur", "intensity": 2.0, "direction": "random"}, {"type": "low_light", "darkness": 0.30}], "_prefix": "motion_lowlight_2_0_3"},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}, {"type": "low_light", "darkness": 0.33}], "_prefix": "motion_lowlight_3_0_33"},
+  {"damage": [{"type": "motion_blur", "intensity": 4.0, "direction": "random"}, {"type": "low_light", "darkness": 0.36}], "_prefix": "motion_lowlight_4_0_36"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}, {"type": "low_light", "darkness": 0.40}], "_prefix": "motion_lowlight_5_0_4"},
+  {"damage": [{"type": "motion_blur", "intensity": 6.0, "direction": "random"}, {"type": "low_light", "darkness": 0.43}], "_prefix": "motion_lowlight_6_0_43"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": "random"}, {"type": "low_light", "darkness": 0.46}], "_prefix": "motion_lowlight_7_0_46"},
+  {"damage": [{"type": "motion_blur", "intensity": 8.0, "direction": "random"}, {"type": "low_light", "darkness": 0.50}], "_prefix": "motion_lowlight_8_0_5"}
+]
