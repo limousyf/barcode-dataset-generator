@@ -1,0 +1,5 @@
+[
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}], "_prefix": "blur_3"},
+  {"damage": [{"type": "motion_blur", "intensity": 4.0, "direction": "random"}], "_prefix": "blur_4"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}], "_prefix": "blur_5"}
+]
