@@ -1,0 +1,11 @@
+[
+  {"damage": [{"type": "motion_blur", "intensity": 2.0, "direction": "random"}], "_prefix": "motion_blur_2"},
+  {"damage": [{"type": "motion_blur", "intensity": 3.5, "direction": "random"}], "_prefix": "motion_blur_3p5"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}], "_prefix": "motion_blur_5"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": "random"}], "_prefix": "motion_blur_7"},
+  {"damage": [{"type": "motion_blur", "intensity": 2.0, "direction": "random"}, {"type": "white_noise", "intensity": 0.4}], "_prefix": "motion_noise_2_0p4"},
+  {"damage": [{"type": "motion_blur", "intensity": 4.0, "direction": "random"}, {"type": "white_noise", "intensity": 0.5}], "_prefix": "motion_noise_4_0p5"},
+  {"damage": [{"type": "motion_blur", "intensity": 6.0, "direction": "random"}, {"type": "white_noise", "intensity": 0.6}], "_prefix": "motion_noise_6_0p6"},
+  {"damage": [{"type": "white_noise", "intensity": 0.5}], "_prefix": "noise_0p5"},
+  {"damage": [{"type": "white_noise", "intensity": 0.7}], "_prefix": "noise_0p7"}
+]
