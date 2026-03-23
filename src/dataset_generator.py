@@ -436,9 +436,10 @@ class DatasetGenerator:
                 with ThreadPoolExecutor(max_workers=workers) as executor:
                     futures = {}
                     for idx, (symbology, sample_num) in enumerate(samples_to_generate):
-                        # Determine split
-                        split = self._get_split(idx, len(samples_to_generate),
-                                              train_ratio, val_ratio)
+                        # Determine split (empty string if splitting disabled)
+                        split = "" if not enable_split else self._get_split(
+                            idx, len(samples_to_generate), train_ratio, val_ratio
+                        )
 
                         future = executor.submit(
                             self._generate_and_save_sample,
@@ -458,11 +459,12 @@ class DatasetGenerator:
                     for future in as_completed(futures):
                         symbology, sample_num = futures[future]
                         try:
-                            success = future.result()
-                            if success:
+                            result_split = future.result()
+                            if result_split is not None:
                                 stats["generated"] += 1
                                 stats["by_symbology"][symbology]["generated"] += 1
-                                stats[success] += 1  # success is the split name
+                                if result_split:  # Only update split stats if not empty
+                                    stats[result_split] += 1
                             else:
                                 stats["failed"] += 1
                                 stats["by_symbology"][symbology]["failed"] += 1
@@ -474,10 +476,12 @@ class DatasetGenerator:
             else:
                 # Sequential generation
                 for idx, (symbology, sample_num) in enumerate(samples_to_generate):
-                    split = self._get_split(idx, len(samples_to_generate),
-                                          train_ratio, val_ratio)
+                    # Determine split (empty string if splitting disabled)
+                    split = "" if not enable_split else self._get_split(
+                        idx, len(samples_to_generate), train_ratio, val_ratio
+                    )
                     try:
-                        success = self._generate_and_save_sample(
+                        result_split = self._generate_and_save_sample(
                             symbology=symbology,
                             sample_idx=idx,
                             split=split,
@@ -489,10 +493,11 @@ class DatasetGenerator:
                             min_barcodes=min_barcodes,
                             max_barcodes=max_barcodes,
                         )
-                        if success:
+                        if result_split is not None:
                             stats["generated"] += 1
                             stats["by_symbology"][symbology]["generated"] += 1
-                            stats[success] += 1
+                            if result_split:  # Only update split stats if not empty
+                                stats[result_split] += 1
                         else:
                             stats["failed"] += 1
                             stats["by_symbology"][symbology]["failed"] += 1
@@ -617,8 +622,10 @@ class DatasetGenerator:
                         self._degradation_configs = spec.get('configs')
                         self._degradation_index = sample_num % len(spec['configs']) if spec.get('configs') else 0
 
-                        # Determine split
-                        split = self._get_split(idx, len(all_samples), train_ratio, val_ratio)
+                        # Determine split (empty string if splitting disabled)
+                        split = "" if not enable_split else self._get_split(
+                            idx, len(all_samples), train_ratio, val_ratio
+                        )
 
                         future = executor.submit(
                             self._generate_and_save_sample_with_config,
@@ -639,12 +646,13 @@ class DatasetGenerator:
                         symbology, sample_num, spec_idx = futures[future]
                         spec_name = generation_specs[spec_idx].get('name', f'spec_{spec_idx}')
                         try:
-                            success = future.result()
-                            if success:
+                            result_split = future.result()
+                            if result_split is not None:
                                 stats["generated"] += 1
                                 stats["by_symbology"][symbology]["generated"] += 1
                                 stats["by_spec"][spec_name]["generated"] += 1
-                                stats[success] += 1  # success is the split name
+                                if result_split:  # Only update split stats if not empty
+                                    stats[result_split] += 1
                             else:
                                 stats["failed"] += 1
                                 stats["by_symbology"][symbology]["failed"] += 1
@@ -660,9 +668,12 @@ class DatasetGenerator:
                 for idx, (symbology, sample_num, spec_idx) in enumerate(all_samples):
                     spec = generation_specs[spec_idx]
                     spec_name = spec.get('name', f'spec_{spec_idx}')
-                    split = self._get_split(idx, len(all_samples), train_ratio, val_ratio)
+                    # Determine split (empty string if splitting disabled)
+                    split = "" if not enable_split else self._get_split(
+                        idx, len(all_samples), train_ratio, val_ratio
+                    )
                     try:
-                        success = self._generate_and_save_sample_with_config(
+                        result_split = self._generate_and_save_sample_with_config(
                             symbology=symbology,
                             sample_idx=idx,
                             split=split,
@@ -674,11 +685,12 @@ class DatasetGenerator:
                             min_barcodes=min_barcodes,
                             max_barcodes=max_barcodes,
                         )
-                        if success:
+                        if result_split is not None:
                             stats["generated"] += 1
                             stats["by_symbology"][symbology]["generated"] += 1
                             stats["by_spec"][spec_name]["generated"] += 1
-                            stats[success] += 1
+                            if result_split:  # Only update split stats if not empty
+                                stats[result_split] += 1
                         else:
                             stats["failed"] += 1
                             stats["by_symbology"][symbology]["failed"] += 1

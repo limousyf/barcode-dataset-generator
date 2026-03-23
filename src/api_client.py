@@ -17,6 +17,30 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+# Composite symbologies that require the /api/v2/composite endpoint
+COMPOSITE_SYMBOLOGIES = {
+    'gs1_128_cc', 'eanx_cc', 'upca_cc', 'upce_cc',
+    'dbar_omn_cc', 'dbar_ltd_cc', 'dbar_exp_cc',
+    'dbar_stk_cc', 'dbar_omnstk_cc', 'dbar_expstk_cc',
+    # Aliases used in this project
+    'ean13_cc', 'ean8_cc', 'gs1_databar_cc',
+    'gs1_databar_expanded_cc', 'gs1_databar_stacked_cc',
+}
+
+# Map aliases to API symbology names
+COMPOSITE_SYMBOLOGY_MAP = {
+    'ean13_cc': 'eanx_cc',
+    'ean8_cc': 'eanx_cc',
+    'gs1_databar_cc': 'dbar_omn_cc',
+    'gs1_databar_expanded_cc': 'dbar_exp_cc',
+    'gs1_databar_stacked_cc': 'dbar_stk_cc',
+}
+
+
+def is_composite_symbology(symbology: str) -> bool:
+    """Check if a symbology is a composite type requiring special handling."""
+    return symbology.lower() in COMPOSITE_SYMBOLOGIES
+
 
 class APIError(Exception):
     """Base exception for API errors."""
@@ -162,10 +186,12 @@ class BarcodeAPIClient:
         Generate a barcode with optional degradation.
 
         Uses v2 API endpoint which requires authentication for production.
+        Automatically routes composite symbologies to the correct endpoint.
 
         Args:
-            barcode_type: Symbology type (code128, qr, upca, etc.)
-            text: Data to encode in barcode
+            barcode_type: Symbology type (code128, qr, upca, gs1_128_cc, etc.)
+            text: Data to encode. For composite barcodes, use format:
+                  "primary_data|composite_data" (pipe-separated)
             degradation: Optional degradation configuration
             image_format: Output format (PNG, JPEG, WEBP)
 
@@ -176,6 +202,24 @@ class BarcodeAPIClient:
             AuthenticationError: If API key not set for production
             APIError: If API request fails
         """
+        # Route composite symbologies to the composite endpoint
+        if is_composite_symbology(barcode_type):
+            # Parse primary and composite data from text
+            if "|" in text:
+                primary_data, composite_data = text.split("|", 1)
+            else:
+                # If no separator, use text as primary and generate composite
+                primary_data = text
+                composite_data = self._generate_default_composite_data()
+
+            return self.generate_composite_barcode(
+                composite_type=barcode_type,
+                primary_data=primary_data,
+                composite_data=composite_data,
+                degradation=degradation,
+                image_format=image_format
+            )
+
         # Check authentication for production
         if self.is_production and not self.is_authenticated:
             raise AuthenticationError(
@@ -221,6 +265,89 @@ class BarcodeAPIClient:
             degradation_applied=data.get("degradation_applied", False),
             transformations=data.get("transformations", []),
             input_text=text,
+        )
+
+    def _generate_default_composite_data(self) -> str:
+        """Generate default 2D composite component data."""
+        import random
+        batch = random.randint(100, 999)
+        # Expiry date format: YYMMDD
+        expiry = f"26{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
+        return f"[10]BATCH{batch}[17]{expiry}"
+
+    def generate_composite_barcode(
+        self,
+        composite_type: str,
+        primary_data: str,
+        composite_data: str,
+        degradation: Optional[Dict] = None,
+        image_format: str = "PNG"
+    ) -> Optional[BarcodeResult]:
+        """
+        Generate a composite barcode with optional degradation.
+
+        Composite barcodes combine a linear barcode with a 2D component.
+
+        Args:
+            composite_type: Composite symbology (gs1_128_cc, eanx_cc, etc.)
+            primary_data: Data for the linear barcode component
+            composite_data: Data for the 2D composite component
+            degradation: Optional degradation configuration
+            image_format: Output format (PNG, JPEG, WEBP)
+
+        Returns:
+            BarcodeResult with image and metadata, or None on failure
+        """
+        if self.is_production and not self.is_authenticated:
+            raise AuthenticationError(
+                "API key required for barcodes.dev v2 endpoints."
+            )
+
+        # Map aliases to API symbology names
+        api_type = COMPOSITE_SYMBOLOGY_MAP.get(composite_type.lower(), composite_type.lower())
+
+        payload = {
+            "composite_type": api_type,
+            "primary_data": primary_data,
+            "text": composite_data,
+            "format": image_format.upper(),
+        }
+
+        if degradation:
+            payload["degradation"] = degradation
+
+        response = self._request_with_retry(
+            "POST",
+            "/api/v2/composite",
+            json=payload
+        )
+
+        if not response:
+            return None
+
+        data = response.json()
+
+        if not data.get("success", False):
+            error_msg = data.get("error", "Unknown error")
+            logger.error(f"Composite barcode generation failed: {error_msg}")
+            raise APIError(f"Composite barcode generation failed: {error_msg}")
+
+        # Composite endpoint returns 'data' instead of 'image'
+        image_data = data.get("data") or data.get("image")
+        if not image_data:
+            raise APIError("No image data in composite response")
+        image = self._decode_image(image_data)
+
+        # Store both primary and composite data in input_text
+        combined_text = f"{primary_data}|{composite_data}"
+
+        return BarcodeResult(
+            image=image,
+            metadata=data.get("metadata", {}),
+            format=data.get("format", "PNG").lower(),
+            degradation_applied=data.get("degradation_applied", False),
+            transformations=data.get("transformations", []),
+            input_text=combined_text,
         )
 
     def get_degradation_presets(self) -> Dict[str, Any]:

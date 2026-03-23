@@ -28,8 +28,9 @@ SYMBOLOGY_CATEGORIES = {
         "royalmail", "kix", "japanpost", "australiapost", "mailmark",
     ],
     "composite": [
-        "gs1_128_cc", "ean13_cc", "ean8_cc", "upca_cc", "upce_cc",
-        "gs1_databar_cc", "gs1_databar_expanded_cc", "gs1_databar_stacked_cc",
+        "gs1_128_cc", "eanx_cc", "upca_cc", "upce_cc",
+        "dbar_omn_cc", "dbar_ltd_cc", "dbar_exp_cc",
+        "dbar_stk_cc", "dbar_omnstk_cc", "dbar_expstk_cc",
     ],
     "popular": [
         "code128", "code39", "upca", "upce", "ean13", "ean8",
@@ -92,6 +93,40 @@ def parse_barcodes_per_image(range_str: str) -> Tuple[int, int]:
         return (n, n)
 
 
+def _calculate_check_digit(digits: str) -> str:
+    """Calculate GS1 check digit for GTIN-8/12/13/14."""
+    # Pad to 17 digits (max GTIN length - 1)
+    padded = digits.zfill(17)
+    total = 0
+    for i, digit in enumerate(padded):
+        weight = 3 if i % 2 == 0 else 1
+        total += int(digit) * weight
+    check = (10 - (total % 10)) % 10
+    return str(check)
+
+
+def _generate_gtin14() -> str:
+    """Generate a valid GTIN-14 with correct check digit."""
+    base = "".join(random.choices(string.digits, k=13))
+    check = _calculate_check_digit(base)
+    return base + check
+
+
+def _generate_gtin13() -> str:
+    """Generate a valid GTIN-13/EAN-13 with correct check digit."""
+    base = "".join(random.choices(string.digits, k=12))
+    check = _calculate_check_digit(base)
+    return base + check
+
+
+def _generate_composite_data() -> str:
+    """Generate GS1 AI format data for 2D composite component."""
+    batch = random.randint(100, 999)
+    # Expiry date format: YYMMDD
+    expiry = f"26{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
+    return f"[10]BATCH{batch}[17]{expiry}"
+
+
 def generate_sample_data(symbology: str) -> str:
     """
     Generate appropriate sample data for a symbology.
@@ -100,9 +135,75 @@ def generate_sample_data(symbology: str) -> str:
         symbology: Barcode type
 
     Returns:
-        Sample data string
+        Sample data string. For composite symbologies, returns
+        "primary_data|composite_data" format.
     """
     symbology_lower = symbology.lower()
+
+    # Composite symbologies - return "primary|composite" format
+    if symbology_lower in ["gs1_128_cc"]:
+        # GS1-128 Composite: GS1 AI format for primary (AI 01 requires 14 digits)
+        gtin = _generate_gtin14()
+        primary = f"[01]{gtin}"
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["eanx_cc", "ean13_cc"]:
+        # EAN Composite: 12 digits (Zint calculates check digit)
+        primary = "".join(random.choices(string.digits, k=12))
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["ean8_cc"]:
+        # EAN-8 Composite: 7 digits
+        primary = "".join(random.choices(string.digits, k=7))
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["upca_cc"]:
+        # UPC-A Composite: 11 digits
+        primary = "".join(random.choices(string.digits, k=11))
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["upce_cc"]:
+        # UPC-E Composite: 7 digits starting with 0
+        primary = f"0{random.randint(100000, 999999)}"
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["dbar_omn_cc", "gs1_databar_cc"]:
+        # DataBar Omnidirectional Composite (14-digit GTIN)
+        primary = _generate_gtin14()
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["dbar_ltd_cc"]:
+        # DataBar Limited Composite (first digit 0 or 1, 13 total)
+        first_digit = random.choice(["0", "1"])
+        primary = first_digit + "".join(random.choices(string.digits, k=12))
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["dbar_exp_cc", "gs1_databar_expanded_cc"]:
+        # DataBar Expanded Composite (AI 01 requires 14 digits)
+        gtin = _generate_gtin14()
+        primary = f"[01]{gtin}"
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["dbar_stk_cc", "dbar_omnstk_cc", "gs1_databar_stacked_cc"]:
+        # DataBar Stacked variants (14-digit GTIN)
+        primary = _generate_gtin14()
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
+
+    if symbology_lower in ["dbar_expstk_cc"]:
+        # DataBar Expanded Stacked Composite (AI 01 format)
+        gtin = _generate_gtin14()
+        primary = f"[01]{gtin}"
+        composite = _generate_composite_data()
+        return f"{primary}|{composite}"
 
     # Numeric-only symbologies
     if symbology_lower in ["upca", "ean13", "ean8", "itf", "itf14", "postnet"]:
