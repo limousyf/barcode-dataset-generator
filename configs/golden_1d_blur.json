@@ -1,21 +1,18 @@
-{
-  "_comment": "Golden 1D blur dataset: avoids blur directions that don't impact readability (±15° around 90° and 270°). Valid directions: 105°-255° and 285°-75°.",
-  "variations": [
-    {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_3"},
-    {"damage": [{"type": "motion_blur", "intensity": 4.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_4"},
-    {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_5"},
-    {"damage": [{"type": "motion_blur", "intensity": 6.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_6"},
-    {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_7"},
-    {"damage": [{"type": "motion_blur", "intensity": 8.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_8"},
-    {"damage": [{"type": "motion_blur", "intensity": 9.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_9"},
-    {"damage": [{"type": "motion_blur", "intensity": 10.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_10"},
-    {"damage": [{"type": "gaussian_blur", "sigma": 2.0}], "_prefix": "gaussian_2"},
-    {"damage": [{"type": "gaussian_blur", "sigma": 5.0}], "_prefix": "gaussian_5"},
-    {"damage": [{"type": "gaussian_blur", "sigma": 8.0}], "_prefix": "gaussian_8"},
-    {"damage": [{"type": "gaussian_blur", "sigma": 12.0}], "_prefix": "gaussian_12"},
-    {"damage": [{"type": "defocus_blur", "radius": 5.0}], "_prefix": "defocus_5"},
-    {"damage": [{"type": "defocus_blur", "radius": 8.0}], "_prefix": "defocus_8"},
-    {"damage": [{"type": "defocus_blur", "radius": 12.0}], "_prefix": "defocus_12"},
-    {"damage": [{"type": "defocus_blur", "radius": 16.0}], "_prefix": "defocus_16"}
-  ]
-}
+[
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_3"},
+  {"damage": [{"type": "motion_blur", "intensity": 4.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_4"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_5"},
+  {"damage": [{"type": "motion_blur", "intensity": 6.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_6"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_7"},
+  {"damage": [{"type": "motion_blur", "intensity": 8.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_8"},
+  {"damage": [{"type": "motion_blur", "intensity": 9.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_9"},
+  {"damage": [{"type": "motion_blur", "intensity": 10.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "blur_10"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 2.0}], "_prefix": "gaussian_2"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 5.0}], "_prefix": "gaussian_5"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 8.0}], "_prefix": "gaussian_8"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 12.0}], "_prefix": "gaussian_12"},
+  {"damage": [{"type": "defocus_blur", "radius": 5.0}], "_prefix": "defocus_5"},
+  {"damage": [{"type": "defocus_blur", "radius": 8.0}], "_prefix": "defocus_8"},
+  {"damage": [{"type": "defocus_blur", "radius": 12.0}], "_prefix": "defocus_12"},
+  {"damage": [{"type": "defocus_blur", "radius": 16.0}], "_prefix": "defocus_16"}
+]
