@@ -277,6 +277,19 @@ Example `my-degradation.json`:
 }
 ```
 
+The `direction` parameter for motion blur supports three formats:
+- **Fixed angle**: `"direction": 45` — blur always at 45°
+- **Random**: `"direction": "random"` — uniform random 0°-360° per sample
+- **Range**: `"direction": [330, 30]` — random within a range (supports wrap-around)
+
+Range examples:
+```json
+{"type": "motion_blur", "intensity": 5.0, "direction": [330, 30]}
+```
+This picks a random angle between 330° and 30° (wrapping through 0°), which targets
+near-horizontal blur — the worst case for horizontal 1D barcodes. Use this to avoid
+"lucky" blur directions that are parallel to the barcode bars and don't affect readability.
+
 ### With Background Images
 
 Embed barcodes on realistic backgrounds for more challenging restoration:

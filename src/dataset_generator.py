@@ -1161,6 +1161,19 @@ class DatasetGenerator:
                                     new_item[k] = random.choice(directions)
                                 else:
                                     new_item[k] = v  # Unknown random param, keep as-is
+                            elif k == "direction" and isinstance(v, list) and len(v) == 2:
+                                # Direction range: [min_angle, max_angle]
+                                # Supports wrap-around, e.g. [330, 30] means 330°→360°→0°→30°
+                                min_a, max_a = v
+                                if min_a <= max_a:
+                                    new_item[k] = random.uniform(min_a, max_a)
+                                else:
+                                    # Wrap-around: e.g. [330, 30] → pick from 330-360 or 0-30
+                                    range1 = 360 - min_a  # degrees from min to 360
+                                    range2 = max_a         # degrees from 0 to max
+                                    total = range1 + range2
+                                    r = random.uniform(0, total)
+                                    new_item[k] = (min_a + r) % 360
                             else:
                                 new_item[k] = v
                         new_list.append(new_item)
