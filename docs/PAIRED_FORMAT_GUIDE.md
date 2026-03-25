@@ -287,8 +287,15 @@ Range examples:
 {"type": "motion_blur", "intensity": 5.0, "direction": [330, 30]}
 ```
 This picks a random angle between 330° and 30° (wrapping through 0°), which targets
-near-horizontal blur — the worst case for horizontal 1D barcodes. Use this to avoid
-"lucky" blur directions that are parallel to the barcode bars and don't affect readability.
+near-horizontal blur — the worst case for horizontal 1D barcodes.
+
+**Multiple ranges** (weighted by arc length):
+```json
+{"type": "motion_blur", "intensity": 5.0, "direction": [[105, 255], [285, 75]]}
+```
+This avoids ±15° around 90° and 270° — directions where motion blur runs parallel to
+1D barcode bars and doesn't affect readability. Use this for rigorous "golden" test sets
+where every blurred sample is genuinely degraded. See `configs/golden_1d_blur.json`.
 
 ### With Background Images
 

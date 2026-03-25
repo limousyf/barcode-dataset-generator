@@ -1161,19 +1161,37 @@ class DatasetGenerator:
                                     new_item[k] = random.choice(directions)
                                 else:
                                     new_item[k] = v  # Unknown random param, keep as-is
-                            elif k == "direction" and isinstance(v, list) and len(v) == 2:
-                                # Direction range: [min_angle, max_angle]
-                                # Supports wrap-around, e.g. [330, 30] means 330°→360°→0°→30°
-                                min_a, max_a = v
-                                if min_a <= max_a:
-                                    new_item[k] = random.uniform(min_a, max_a)
+                            elif k == "direction" and isinstance(v, list):
+                                # Direction range(s):
+                                #   [min, max]           — single range, e.g. [330, 30]
+                                #   [[min,max],[min,max]] — multiple ranges, weighted by arc length
+                                # All support wrap-around (e.g. [330, 30] = 330°→0°→30°)
+                                def _sample_range(min_a, max_a):
+                                    if min_a <= max_a:
+                                        return random.uniform(min_a, max_a)
+                                    else:
+                                        total = (360 - min_a) + max_a
+                                        r = random.uniform(0, total)
+                                        return (min_a + r) % 360
+
+                                def _arc_length(min_a, max_a):
+                                    return (max_a - min_a) % 360 or 360
+
+                                if len(v) == 2 and not isinstance(v[0], list):
+                                    # Single range: [min, max]
+                                    new_item[k] = _sample_range(v[0], v[1])
                                 else:
-                                    # Wrap-around: e.g. [330, 30] → pick from 330-360 or 0-30
-                                    range1 = 360 - min_a  # degrees from min to 360
-                                    range2 = max_a         # degrees from 0 to max
-                                    total = range1 + range2
-                                    r = random.uniform(0, total)
-                                    new_item[k] = (min_a + r) % 360
+                                    # Multiple ranges: [[min,max], [min,max], ...]
+                                    # Weight by arc length so wider ranges get more samples
+                                    weights = [_arc_length(r[0], r[1]) for r in v]
+                                    total_w = sum(weights)
+                                    pick = random.uniform(0, total_w)
+                                    cumulative = 0
+                                    for i, w in enumerate(weights):
+                                        cumulative += w
+                                        if pick <= cumulative:
+                                            new_item[k] = _sample_range(v[i][0], v[i][1])
+                                            break
                             else:
                                 new_item[k] = v
                         new_list.append(new_item)
