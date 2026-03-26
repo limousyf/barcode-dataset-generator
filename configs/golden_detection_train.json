@@ -1,0 +1,56 @@
+[
+  {"_comment": "=== CLEAN ==="},
+  {"_prefix": "clean"},
+
+  {"_comment": "=== ROTATION (in-plane) ==="},
+  {"geometry": [{"type": "rotation_z", "angle": -15}], "_prefix": "rot_n15"},
+  {"geometry": [{"type": "rotation_z", "angle": -10}], "_prefix": "rot_n10"},
+  {"geometry": [{"type": "rotation_z", "angle": -5}], "_prefix": "rot_n5"},
+  {"geometry": [{"type": "rotation_z", "angle": 5}], "_prefix": "rot_5"},
+  {"geometry": [{"type": "rotation_z", "angle": 10}], "_prefix": "rot_10"},
+  {"geometry": [{"type": "rotation_z", "angle": 15}], "_prefix": "rot_15"},
+
+  {"_comment": "=== MOTION BLUR (direction-controlled) ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}], "_prefix": "motion_3"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}], "_prefix": "motion_5"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": "random"}], "_prefix": "motion_7"},
+
+  {"_comment": "=== GAUSSIAN BLUR ==="},
+  {"damage": [{"type": "gaussian_blur", "sigma": 2.0}], "_prefix": "gaussian_2"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 4.0}], "_prefix": "gaussian_4"},
+
+  {"_comment": "=== DEFOCUS ==="},
+  {"damage": [{"type": "defocus_blur", "radius": 3.0}], "_prefix": "defocus_3"},
+  {"damage": [{"type": "defocus_blur", "radius": 6.0}], "_prefix": "defocus_6"},
+
+  {"_comment": "=== NOISE ==="},
+  {"damage": [{"type": "white_noise", "intensity": 0.15}], "_prefix": "noise_015"},
+  {"damage": [{"type": "white_noise", "intensity": 0.3}], "_prefix": "noise_03"},
+
+  {"_comment": "=== LIGHTING ==="},
+  {"lighting": [{"type": "low_light", "darkness": 0.3}], "_prefix": "lowlight_03"},
+  {"lighting": [{"type": "low_light", "darkness": 0.5}], "_prefix": "lowlight_05"},
+  {"lighting": [{"type": "overexposure", "brightness": 0.3}], "_prefix": "overexp_03"},
+
+  {"_comment": "=== SURFACE DAMAGE ==="},
+  {"damage": [{"type": "fading", "intensity": 0.2}], "_prefix": "fading_02"},
+  {"damage": [{"type": "scratches", "intensity": 0.3}], "_prefix": "scratches_03"},
+
+  {"_comment": "=== COMBINED: rotation + blur ==="},
+  {"geometry": [{"type": "rotation_z", "angle": 10}], "damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}], "_prefix": "rot10_motion3"},
+  {"geometry": [{"type": "rotation_z", "angle": -8}], "damage": [{"type": "gaussian_blur", "sigma": 2.0}], "_prefix": "rotn8_gauss2"},
+
+  {"_comment": "=== COMBINED: rotation + noise ==="},
+  {"geometry": [{"type": "rotation_z", "angle": 12}], "damage": [{"type": "white_noise", "intensity": 0.2}], "_prefix": "rot12_noise02"},
+
+  {"_comment": "=== COMBINED: blur + noise ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}, {"type": "white_noise", "intensity": 0.15}], "_prefix": "motion5_noise015"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 2.0}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "gauss2_noise01"},
+
+  {"_comment": "=== COMBINED: blur + low light ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}], "lighting": [{"type": "low_light", "darkness": 0.3}], "_prefix": "motion3_lowlight03"},
+
+  {"_comment": "=== COMBINED: rotation + blur + noise (real-world) ==="},
+  {"geometry": [{"type": "rotation_z", "angle": 7}], "damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "rot7_motion3_noise01"},
+  {"geometry": [{"type": "rotation_z", "angle": -5}], "damage": [{"type": "defocus_blur", "radius": 3.0}], "lighting": [{"type": "low_light", "darkness": 0.25}], "_prefix": "rotn5_defocus3_lowlight"}
+]

@@ -131,19 +131,26 @@ class YOLOFormat(OutputFormat):
         class_id = data.class_id if data.class_id is not None else 0
         img_w, img_h = data.image_size
 
-        if task == "segmentation" and data.barcode_only_polygon:
+        if task == "segmentation" and (data.full_region_polygon or data.barcode_only_polygon):
             # Segmentation: class_id x1 y1 x2 y2 ...
+            # Prefer full_region (includes quiet zones) over barcode_only
+            seg_polygon = data.full_region_polygon or data.barcode_only_polygon
             points = []
-            for x, y in data.barcode_only_polygon:
+            for x, y in seg_polygon:
                 norm_x = max(0.0, min(1.0, x / img_w))
                 norm_y = max(0.0, min(1.0, y / img_h))
                 points.extend([f"{norm_x:.6f}", f"{norm_y:.6f}"])
             return f"{class_id} " + " ".join(points)
 
         # Detection: class_id x_center y_center width height
+        # Prefer full_region bbox (includes quiet zones) over barcode_only
         lines = []
 
-        bbox = data.barcode_only_bbox
+        bbox = None
+        if data.full_region_polygon:
+            bbox = self.bbox_from_polygon(data.full_region_polygon)
+        if not bbox:
+            bbox = data.barcode_only_bbox
         if not bbox and data.barcode_only_polygon:
             bbox = self.bbox_from_polygon(data.barcode_only_polygon)
 
