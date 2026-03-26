@@ -1,0 +1,47 @@
+[
+  {"_comment": "Clean (no degradation)", "_prefix": "clean"},
+
+  {"_comment": "=== MOTION BLUR (direction-controlled for 1D) ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "motion_3"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "motion_5"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "motion_7"},
+  {"damage": [{"type": "motion_blur", "intensity": 10.0, "direction": [[105, 255], [285, 75]]}], "_prefix": "motion_10"},
+
+  {"_comment": "=== GAUSSIAN BLUR ==="},
+  {"damage": [{"type": "gaussian_blur", "sigma": 2.0}], "_prefix": "gaussian_2"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 4.0}], "_prefix": "gaussian_4"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 6.0}], "_prefix": "gaussian_6"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 8.0}], "_prefix": "gaussian_8"},
+
+  {"_comment": "=== DEFOCUS BLUR ==="},
+  {"damage": [{"type": "defocus_blur", "radius": 3.0}], "_prefix": "defocus_3"},
+  {"damage": [{"type": "defocus_blur", "radius": 6.0}], "_prefix": "defocus_6"},
+  {"damage": [{"type": "defocus_blur", "radius": 10.0}], "_prefix": "defocus_10"},
+  {"damage": [{"type": "defocus_blur", "radius": 16.0}], "_prefix": "defocus_16"},
+
+  {"_comment": "=== NOISE ==="},
+  {"damage": [{"type": "white_noise", "intensity": 0.1}], "_prefix": "noise_01"},
+  {"damage": [{"type": "white_noise", "intensity": 0.3}], "_prefix": "noise_03"},
+
+  {"_comment": "=== COMBINED: motion blur + noise (real-world) ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": [[105, 255], [285, 75]]}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "motion3_noise01"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": [[105, 255], [285, 75]]}, {"type": "white_noise", "intensity": 0.2}], "_prefix": "motion5_noise02"},
+  {"damage": [{"type": "motion_blur", "intensity": 7.0, "direction": [[105, 255], [285, 75]]}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "motion7_noise01"},
+  {"damage": [{"type": "motion_blur", "intensity": 10.0, "direction": [[105, 255], [285, 75]]}, {"type": "white_noise", "intensity": 0.2}], "_prefix": "motion10_noise02"},
+
+  {"_comment": "=== COMBINED: gaussian blur + noise ==="},
+  {"damage": [{"type": "gaussian_blur", "sigma": 2.0}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "gaussian2_noise01"},
+  {"damage": [{"type": "gaussian_blur", "sigma": 4.0}, {"type": "white_noise", "intensity": 0.2}], "_prefix": "gaussian4_noise02"},
+
+  {"_comment": "=== COMBINED: defocus + noise ==="},
+  {"damage": [{"type": "defocus_blur", "radius": 3.0}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "defocus3_noise01"},
+  {"damage": [{"type": "defocus_blur", "radius": 6.0}, {"type": "white_noise", "intensity": 0.2}], "_prefix": "defocus6_noise02"},
+
+  {"_comment": "=== COMBINED: motion blur + defocus (camera shake + bad focus) ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}, {"type": "defocus_blur", "radius": 2.0}], "_prefix": "motion3_defocus2"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}, {"type": "defocus_blur", "radius": 3.0}], "_prefix": "motion5_defocus3"},
+
+  {"_comment": "=== EXTREME: triple degradation (motion + defocus + noise) ==="},
+  {"damage": [{"type": "motion_blur", "intensity": 3.0, "direction": "random"}, {"type": "defocus_blur", "radius": 2.0}, {"type": "white_noise", "intensity": 0.1}], "_prefix": "triple_mild"},
+  {"damage": [{"type": "motion_blur", "intensity": 5.0, "direction": "random"}, {"type": "defocus_blur", "radius": 3.0}, {"type": "white_noise", "intensity": 0.2}], "_prefix": "triple_hard"}
+]
