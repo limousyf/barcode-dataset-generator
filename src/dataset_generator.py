@@ -788,6 +788,9 @@ class DatasetGenerator:
             final_image = result.image
             adjusted_result = result
 
+        # Collect extra barcodes from multi-code embedding
+        extra_barcodes = getattr(adjusted_result, '_extra_barcodes', [])
+
         # Build AnnotationData for format handler
         annotation_data = AnnotationData(
             image=final_image,
@@ -804,6 +807,7 @@ class DatasetGenerator:
             text_bbox=adjusted_result.text_bbox,
             degradation=degradation,
             transformations=adjusted_result.raw_response.get("transformations", []),
+            extra_barcodes=extra_barcodes,
         )
 
         # Save using format handler
@@ -813,6 +817,7 @@ class DatasetGenerator:
 
     def _build_class_mapping(self, symbologies: List[str], label_mode: str) -> None:
         """Build class ID mapping based on label mode."""
+        self.label_mode = label_mode
         self.class_to_id = {}
         self.id_to_class = {}
 
@@ -969,6 +974,9 @@ class DatasetGenerator:
             final_image = result.image
             adjusted_result = result
 
+        # Collect extra barcodes from multi-code embedding
+        extra_barcodes = getattr(adjusted_result, '_extra_barcodes', [])
+
         # Build AnnotationData for format handler
         annotation_data = AnnotationData(
             image=final_image,
@@ -986,6 +994,7 @@ class DatasetGenerator:
             class_name=class_name,
             degradation_applied=adjusted_result.degradation_applied,
             transformations=adjusted_result.transformations,
+            extra_barcodes=extra_barcodes,
         )
 
         # Save using format handler
@@ -1222,9 +1231,8 @@ class DatasetGenerator:
         bg_width, bg_height = background.size
 
         existing_bboxes = []
+        extra_barcodes_data = []
 
-        # For now, just place the first barcode
-        # TODO: Support multiple barcodes per image
         barcode_img = result.image
 
         # Scale barcode to random size within range (as fraction of background width)
@@ -1305,6 +1313,67 @@ class DatasetGenerator:
                 "height": bg_height
             }
 
+            # Track the first barcode's bbox for collision avoidance
+            existing_bboxes.append((x, y, x + new_barcode_width, y + new_barcode_height))
+
+            # Generate and place additional barcodes
+            if num_barcodes > 1:
+                # Pick random symbologies for extra barcodes
+                all_symbologies = list(self.id_to_class.values()) if self.id_to_class else ["code128", "qr"]
+                for i in range(num_barcodes - 1):
+                    extra_sym = random.choice(all_symbologies)
+                    try:
+                        extra_result = self.api_client.generate_barcode(
+                            barcode_type=extra_sym,
+                            text=generate_sample_data(extra_sym),
+                            degradation=None,  # Extra barcodes get same scene degradation from background
+                            image_format=result.format or "PNG",
+                        )
+                        if not extra_result or not extra_result.image:
+                            continue
+
+                        # Scale and place
+                        extra_img = extra_result.image
+                        extra_scale = random.uniform(*self.barcode_scale_range)
+                        extra_w = int(bg_width * extra_scale)
+                        extra_aspect = extra_img.height / extra_img.width
+                        extra_h = int(extra_w * extra_aspect)
+                        extra_resized = extra_img.resize((extra_w, extra_h), Image.Resampling.LANCZOS)
+
+                        extra_pos = self.background_manager.place_barcode(
+                            background, extra_resized, existing_bboxes
+                        )
+                        if extra_pos:
+                            ex, ey = extra_pos
+                            background.paste(extra_resized, (ex, ey))
+                            existing_bboxes.append((ex, ey, ex + extra_w, ey + extra_h))
+
+                            # Get class ID for this symbology
+                            extra_class_id = self._get_class_id(extra_sym, self.label_mode if hasattr(self, 'label_mode') else 'symbology')
+
+                            # Compute bbox from barcode region if available, else use paste position
+                            if extra_result.barcode_bbox:
+                                eb_scale = extra_w / extra_img.width
+                                eb_bbox = [
+                                    int(extra_result.barcode_bbox[0] * eb_scale) + ex,
+                                    int(extra_result.barcode_bbox[1] * eb_scale) + ey,
+                                    int(extra_result.barcode_bbox[2] * eb_scale) + ex,
+                                    int(extra_result.barcode_bbox[3] * eb_scale) + ey,
+                                ]
+                            else:
+                                eb_bbox = [ex, ey, ex + extra_w, ey + extra_h]
+
+                            extra_barcodes_data.append({
+                                "class_id": extra_class_id,
+                                "class_name": extra_sym,
+                                "bbox": eb_bbox,
+                                "symbology": extra_sym,
+                            })
+                            logger.debug(f"Placed extra barcode {i+1}: {extra_sym} at ({ex},{ey})")
+                    except Exception as e:
+                        logger.debug(f"Failed to generate extra barcode: {e}")
+                        continue
+
             # Create new BarcodeResult with adjusted metadata
             adjusted_result = BarcodeResult(
                 image=background,
@@ -1314,6 +1383,8 @@ class DatasetGenerator:
                 transformations=result.transformations,
                 input_text=result.input_text,
             )
+            # Attach extra barcodes data for annotation
+            adjusted_result._extra_barcodes = extra_barcodes_data
 
             return background, adjusted_result
 

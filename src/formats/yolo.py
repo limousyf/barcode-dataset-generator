@@ -141,6 +141,8 @@ class YOLOFormat(OutputFormat):
             return f"{class_id} " + " ".join(points)
 
         # Detection: class_id x_center y_center width height
+        lines = []
+
         bbox = data.barcode_only_bbox
         if not bbox and data.barcode_only_polygon:
             bbox = self.bbox_from_polygon(data.barcode_only_polygon)
@@ -151,9 +153,21 @@ class YOLOFormat(OutputFormat):
             y_center = (y_min + y_max) / 2.0 / img_h
             width = (x_max - x_min) / img_w
             height = (y_max - y_min) / img_h
-            return f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}"
+            lines.append(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
 
-        return ""
+        # Extra barcodes on the same image
+        for extra in data.extra_barcodes:
+            eb_class_id = extra.get("class_id", 0)
+            eb_bbox = extra.get("bbox")
+            if eb_bbox:
+                x_min, y_min, x_max, y_max = eb_bbox
+                x_center = (x_min + x_max) / 2.0 / img_w
+                y_center = (y_min + y_max) / 2.0 / img_h
+                width = (x_max - x_min) / img_w
+                height = (y_max - y_min) / img_h
+                lines.append(f"{eb_class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
+
+        return "\n".join(lines)
 
     def finalize(self, task: str, stats: Dict[str, Any]) -> None:
         """Write YOLO data.yaml configuration file."""

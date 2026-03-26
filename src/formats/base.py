@@ -48,6 +48,10 @@ class AnnotationData:
     degradation_applied: bool = False
     transformations: List[str] = field(default_factory=list)
 
+    # Extra barcodes on the same image (for multi-barcode scenes)
+    # Each entry: {"class_id": int, "class_name": str, "bbox": [x1,y1,x2,y2], "polygon": [[x,y],...]}
+    extra_barcodes: List[Dict] = field(default_factory=list)
+
     # Paired format: sharp version of the image for restoration training
     target_image: Optional[Image.Image] = None
 
